@@ -1,0 +1,42 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.minimal.launcher'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.minimal.launcher"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "0.1"
+        vectorDrawables.useSupportLibrary false
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Keep the APK to one language and one density
+    androidResources {
+        localeFilters += ['en']
+    }
+
+    dependencies { }   // stays empty — see constraints
+}

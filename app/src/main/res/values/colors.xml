@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Placeholder tokens. Will be overwritten once design/DESIGN_NOTES.md
+         has been extracted from the prototype. -->
+    <color name="background">#000000</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="icon_background">#111111</color>
+</resources>
