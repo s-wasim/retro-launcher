@@ -8,11 +8,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.widget.FrameLayout;
 
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
 import com.retro.launcher.data.Prefs;
+import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.LauncherRoot;
 
 import java.util.Calendar;
@@ -20,6 +22,7 @@ import java.util.Calendar;
 public class HomeActivity extends Activity {
 
     private LauncherRoot root;
+    private SkyView sky;
     private Prefs prefs;
     private Metrics metrics;
     private Palette palette;
@@ -40,12 +43,19 @@ public class HomeActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
+        sky = new SkyView(this);
+
         root = new LauncherRoot(this);
         // Tier 0: blank colour-filled panels prove navigation before any
         // content exists. Each is replaced by its real panel in later tiers.
+        // The home panel stays transparent so the sky shows through it.
         root.setPanels(blank(Color.TRANSPARENT), blank(0xFF202020),
                        blank(0xFF303030), blank(0xFF404040));
-        setContentView(root);
+
+        FrameLayout stack = new FrameLayout(this);
+        stack.addView(sky);   // z=0, behind everything, never moves
+        stack.addView(root);
+        setContentView(stack);
 
         refreshPalette();
     }
@@ -89,11 +99,13 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         ticker.post(minuteTick);
+        sky.resume();
     }
 
     @Override protected void onPause() {
         super.onPause();
         ticker.removeCallbacks(minuteTick);
+        sky.pause();
     }
 
     @Override public void onConfigurationChanged(Configuration c) {
