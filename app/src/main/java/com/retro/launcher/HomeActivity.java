@@ -2,19 +2,22 @@ package com.retro.launcher;
 
 import android.app.Activity;
 import android.content.res.Configuration;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.View;
 import android.widget.FrameLayout;
 
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
+import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.Prefs;
+import com.retro.launcher.data.WeatherRepository;
 import com.retro.launcher.sky.SkyView;
+import com.retro.launcher.ui.HomePanel;
 import com.retro.launcher.ui.LauncherRoot;
 
 import java.util.Calendar;
@@ -23,14 +26,17 @@ public class HomeActivity extends Activity {
 
     private LauncherRoot root;
     private SkyView sky;
+    private HomePanel home;
     private Prefs prefs;
     private Metrics metrics;
+    private WeatherRepository weatherRepository;
     private Palette palette;
 
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private final Runnable minuteTick = new Runnable() {
         @Override public void run() {
             refreshPalette();
+            refreshTime();
             ticker.postDelayed(this, 60_000L);
         }
     };
@@ -40,17 +46,17 @@ public class HomeActivity extends Activity {
         goEdgeToEdge();
 
         prefs = new Prefs(this);
+        weatherRepository = new WeatherRepository();
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
         sky = new SkyView(this);
 
         root = new LauncherRoot(this);
-        // Tier 0: blank colour-filled panels prove navigation before any
-        // content exists. Each is replaced by its real panel in later tiers.
-        // The home panel stays transparent so the sky shows through it.
-        root.setPanels(blank(Color.TRANSPARENT), blank(0xFF202020),
-                       blank(0xFF303030), blank(0xFF404040));
+        home = new HomePanel(this, metrics, prefs);
+        // Tiers 2-4 replace these three with their real panels.
+        root.setPanels(home, blank(0xFF202020), blank(0xFF303030), blank(0xFF404040));
+        root.setDoubleTapListener(() -> Log.d("HomeActivity", "double-tap search stub — real overlay lands in Tier 5"));
 
         FrameLayout stack = new FrameLayout(this);
         stack.addView(sky);   // z=0, behind everything, never moves
@@ -58,6 +64,7 @@ public class HomeActivity extends Activity {
         setContentView(stack);
 
         refreshPalette();
+        refreshTime();
     }
 
     private View blank(int color) {
@@ -92,8 +99,16 @@ public class HomeActivity extends Activity {
                 prefs.palette(), prefs.theme(), decimalHour(), systemDark());
         if (palette == null || !palette.id.equals(next.id) || palette.dark != next.dark) {
             palette = next;
-            // Tier 1 hooks Tint and the sky renderer in here.
+            home.setPalette(palette);
         }
+    }
+
+    private void refreshTime() {
+        Calendar now = Calendar.getInstance();
+        home.setTime(now);
+        Weather w = weatherRepository.current(decimalHour());
+        home.setWeather(w);
+        sky.setWeather(w.w);
     }
 
     @Override protected void onResume() {
