@@ -27,10 +27,19 @@ public final class DockView extends LinearLayout {
 
     private static final int MAX_SLOTS = 5;
 
+    /** Long-pressing a filled slot requests its replacement; tapping the
+     *  trailing dashed slot requests an addition. Both hand off to whoever
+     *  owns the dock-picker {@code BottomSheet} — see HomeActivity. */
+    public interface SlotActionListener {
+        void onReplace(int slotIndex);
+        void onAdd();
+    }
+
     private final GradientDrawable background = new GradientDrawable();
     private final Metrics metrics;
     private Palette palette;
     private List<String> entries = new ArrayList<>();
+    private SlotActionListener slotActionListener;
 
     public DockView(Context context, Metrics metrics) {
         super(context);
@@ -49,6 +58,10 @@ public final class DockView extends LinearLayout {
         rebuild();
     }
 
+    public List<String> entries() { return entries; }
+
+    public void setOnSlotActionListener(SlotActionListener l) { this.slotActionListener = l; }
+
     public void setPalette(Palette p) {
         this.palette = p;
         background.setColor(p.veil());
@@ -64,7 +77,7 @@ public final class DockView extends LinearLayout {
         int slotSize = Math.round(metrics.cqw(13f));
 
         for (int i = 0; i < entries.size() && i < MAX_SLOTS; i++) {
-            addView(buildSlot(entries.get(i)), slotParams(slotSize, i == 0 ? 0 : gap));
+            addView(buildSlot(entries.get(i), i), slotParams(slotSize, i == 0 ? 0 : gap));
         }
         if (entries.size() < MAX_SLOTS) {
             addView(buildAddSlot(), slotParams(slotSize, entries.isEmpty() ? 0 : gap));
@@ -77,7 +90,7 @@ public final class DockView extends LinearLayout {
         return lp;
     }
 
-    private View buildSlot(String component) {
+    private View buildSlot(String component, int index) {
         LinearLayout col = new LinearLayout(getContext());
         col.setOrientation(VERTICAL);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -107,7 +120,10 @@ public final class DockView extends LinearLayout {
         col.addView(caption);
 
         col.setOnClickListener(v -> launch(component));
-        col.setOnLongClickListener(v -> true); // TODO(tier-2): open the replace-slot sheet
+        col.setOnLongClickListener(v -> {
+            if (slotActionListener != null) slotActionListener.onReplace(index);
+            return true;
+        });
 
         return col;
     }
@@ -125,7 +141,9 @@ public final class DockView extends LinearLayout {
         plus.setBackground(dashed);
         plus.setLayoutParams(new LinearLayout.LayoutParams(
                 Math.round(metrics.cqw(13f)), Math.round(metrics.cqw(13f))));
-        plus.setOnClickListener(v -> {}); // TODO(tier-2): open the add-to-dock sheet
+        plus.setOnClickListener(v -> {
+            if (slotActionListener != null) slotActionListener.onAdd();
+        });
         return plus;
     }
 

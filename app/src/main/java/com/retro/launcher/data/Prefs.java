@@ -78,6 +78,42 @@ public final class Prefs {
         return new ArrayList<>(Arrays.asList(raw.split("\n")));
     }
 
+    public void setCategories(List<String> cats) {
+        sp.edit().putString(K_CATS, String.join("\n", cats)).apply();
+    }
+
+    /**
+     * User-assigned category overrides, one line per app:
+     * {@code pkg/activity=CAT1,CAT2}. An app with no line here falls back to
+     * its auto-assigned category (DESIGN_NOTES §9 delta 3).
+     */
+    public java.util.Map<String, List<String>> memberships() {
+        java.util.Map<String, List<String>> out = new java.util.HashMap<>();
+        String raw = sp.getString(K_MEMBERS, "");
+        if (raw.isEmpty()) return out;
+        for (String line : raw.split("\n")) {
+            int eq = line.indexOf('=');
+            if (eq < 0) continue;
+            String component = line.substring(0, eq);
+            String cats = line.substring(eq + 1);
+            out.put(component, cats.isEmpty()
+                    ? new ArrayList<>()
+                    : new ArrayList<>(Arrays.asList(cats.split(","))));
+        }
+        return out;
+    }
+
+    public void setMembership(String component, List<String> cats) {
+        java.util.Map<String, List<String>> all = memberships();
+        all.put(component, cats);
+        StringBuilder b = new StringBuilder();
+        for (java.util.Map.Entry<String, List<String>> e : all.entrySet()) {
+            if (b.length() > 0) b.append('\n');
+            b.append(e.getKey()).append('=').append(String.join(",", e.getValue()));
+        }
+        sp.edit().putString(K_MEMBERS, b.toString()).apply();
+    }
+
     public void putString(String key, String value)  { sp.edit().putString(key, value).apply(); }
     public void putBool(String key, boolean value)   { sp.edit().putBoolean(key, value).apply(); }
     public void putInt(String key, int value)        { sp.edit().putInt(key, value).apply(); }
