@@ -1,14 +1,19 @@
 package com.retro.launcher;
 
 import android.app.Activity;
+import android.app.AppOpsManager;
+import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
@@ -33,6 +38,7 @@ import com.retro.launcher.ui.DockView;
 import com.retro.launcher.ui.DrawerPanel;
 import com.retro.launcher.ui.HomePanel;
 import com.retro.launcher.ui.LauncherRoot;
+import com.retro.launcher.ui.SettingsPanel;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -44,10 +50,13 @@ public class HomeActivity extends Activity {
      *  the "IconBench" logcat tag, then delete whichever loses. */
     private static final boolean USE_POSTERIZED_ICONS = false;
 
+    private static final int REQ_LOCATION = 1;
+
     private LauncherRoot root;
     private SkyView sky;
     private HomePanel home;
     private DrawerPanel drawer;
+    private SettingsPanel settings;
     private BottomSheet sheet;
     private AppRepository appRepository;
     private Prefs prefs;
@@ -94,12 +103,39 @@ public class HomeActivity extends Activity {
         drawer = new DrawerPanel(this, metrics, prefs, appRepository, icons, sheet);
         drawer.setOnHomeListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
 
+        settings = new SettingsPanel(this, metrics, prefs);
+        settings.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
+        settings.setOnPrefsChangedListener(() -> {
+            refreshPalette();
+            refreshTime();
+            // Re-render selection state even when the resolved palette itself
+            // didn't change (e.g. AUTO -> an explicit choice that resolves
+            // to the same colours right now).
+            settings.setPalette(palette);
+        });
+        settings.setDockActionListener(new SettingsPanel.DockActionListener() {
+            @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
+            @Override public void onAdd() { openDockSheet(-1); }
+        });
+        settings.setPermissionActionListener(new SettingsPanel.PermissionActionListener() {
+            @Override public void onRequestLocation() {
+                requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+            }
+            @Override public void onOpenUsageAccessSettings() {
+                try {
+                    startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+                } catch (ActivityNotFoundException ignored) {
+                    // No Settings app to resolve it — nothing else we can do.
+                }
+            }
+        });
+
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
         });
 
-        root.setPanels(home, blank(0xFF202020), drawer, blank(0xFF404040));
+        root.setPanels(home, settings, drawer, blank(0xFF404040));
         root.setDoubleTapListener(() -> Log.d("HomeActivity", "double-tap search stub — real overlay lands in Tier 5"));
 
         FrameLayout stack = new FrameLayout(this);
@@ -111,6 +147,8 @@ public class HomeActivity extends Activity {
         refreshPalette();
         refreshTime();
         drawer.refresh();
+        settings.setDockEntries(home.dock.entries());
+        refreshPermissionStatus();
 
         registerReceiver(packageReceiver, packageChangeFilter());
     }
@@ -136,6 +174,7 @@ public class HomeActivity extends Activity {
                 next.remove(removed);
                 prefs.setDock(next);
                 home.dock.setEntries(next);
+                settings.setDockEntries(next);
                 sheet.close();
             });
         }
@@ -153,6 +192,7 @@ public class HomeActivity extends Activity {
                 }
                 prefs.setDock(next);
                 home.dock.setEntries(next);
+                settings.setDockEntries(next);
                 sheet.close();
             });
         }
@@ -192,6 +232,7 @@ public class HomeActivity extends Activity {
             palette = next;
             home.setPalette(palette);
             drawer.setPalette(palette);
+            settings.setPalette(palette);
         }
     }
 
@@ -200,7 +241,29 @@ public class HomeActivity extends Activity {
         home.setTime(now);
         Weather w = weatherRepository.current(decimalHour());
         home.setWeather(w);
+        settings.setWeather(w);
         sky.setWeather(w.w);
+    }
+
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasUsageAccess() {
+        AppOpsManager ops = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+        int mode = ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(), getPackageName());
+        return mode == AppOpsManager.MODE_ALLOWED;
+    }
+
+    private void refreshPermissionStatus() {
+        settings.setPermissionStatus(hasLocationPermission(), hasUsageAccess());
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == REQ_LOCATION) refreshPermissionStatus();
     }
 
     @Override protected void onResume() {
@@ -208,6 +271,7 @@ public class HomeActivity extends Activity {
         ticker.post(minuteTick);
         sky.resume();
         drawer.refresh();
+        refreshPermissionStatus();
     }
 
     @Override protected void onPause() {

@@ -147,7 +147,8 @@ public final class DockView extends LinearLayout {
         return plus;
     }
 
-    private String labelFor(String component) {
+    /** Shared with SettingsPanel's dock editor so both list the same names. */
+    public static String labelFor(String component) {
         int slash = component.indexOf('/');
         String pkg = slash >= 0 ? component.substring(0, slash) : component;
         int dot = pkg.lastIndexOf('.');
