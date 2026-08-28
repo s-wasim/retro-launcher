@@ -35,11 +35,25 @@ import java.util.TreeMap;
 
 /**
  * The app drawer: tab strip, alphabetical list with section headers, and the
- * A-Z scrubber. See DESIGN_NOTES §7b. Long-press a row opens system App Info
- * (§9 delta 4); long-press a category tab opens the membership sheet for
- * that category, which replaces the prototype's per-app category sheet.
+ * A-Z scrubber. See DESIGN_NOTES §7b. Long-press a row opens a small
+ * quick-action box (Launch / Uninstall-Disable / More Details, issue #5);
+ * long-press a category tab opens the membership sheet for that category,
+ * which replaces the prototype's per-app category sheet.
  */
 public final class DrawerPanel extends FrameLayout {
+
+    /**
+     * Shared type/icon scale for the app drawer and every sheet it opens
+     * (dock picker, category membership). One set of sizes so every
+     * sub-setting reads at the same scale — see fix "consistent text/icon
+     * sizes across sub-settings" (issue #3).
+     */
+    public static final float SIZE_TITLE_CQW   = 5.2f, SIZE_TITLE_MIN   = 16f;
+    public static final float SIZE_ACTION_CQW  = 3.8f, SIZE_ACTION_MIN  = 13f;
+    public static final float SIZE_TAB_CQW     = 3.6f, SIZE_TAB_MIN     = 12f;
+    public static final float SIZE_ROW_CQW     = 4.0f, SIZE_ROW_MIN     = 13f;
+    public static final float SIZE_CAPTION_CQW = 3.0f, SIZE_CAPTION_MIN = 10f;
+    public static final float SIZE_ICON_CQW    = 12f;
 
     private final Metrics metrics;
     private final Prefs prefs;
@@ -47,10 +61,12 @@ public final class DrawerPanel extends FrameLayout {
     private final IconSource icons;
     private final BottomSheet sheet;
 
+    private final LinearLayout header;
     private final LinearLayout tabStrip;
     private final ListView listView;
     private final AlphaScrubber scrubber;
     private final DrawerAdapter adapter;
+    private final int headerPadTop;
 
     private List<AppEntry> allApps = new ArrayList<>();
     private String activeTab = "ALL";
@@ -66,10 +82,14 @@ public final class DrawerPanel extends FrameLayout {
         this.icons = icons;
         this.sheet = sheet;
 
+        Tint.setRole(this, Tint.ROLE_BG);
+        setBackgroundColor(0xFF000000);
+
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
 
-        column.addView(buildHeader());
+        column.addView(header = buildHeader());
+        headerPadTop = header.getPaddingTop();
 
         HorizontalScrollView tabScroll = new HorizontalScrollView(context);
         tabScroll.setHorizontalScrollBarEnabled(false);
@@ -95,7 +115,7 @@ public final class DrawerPanel extends FrameLayout {
         });
         listView.setOnItemLongClickListener((AdapterView<?> parent, View v, int position, long id) -> {
             Object item = adapter.getItem(position);
-            if (item instanceof AppEntry) { openAppInfo((AppEntry) item); return true; }
+            if (item instanceof AppEntry) { showAppActions((AppEntry) item, v); return true; }
             return false;
         });
         row.addView(listView, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
@@ -115,7 +135,7 @@ public final class DrawerPanel extends FrameLayout {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
     }
 
-    private View buildHeader() {
+    private LinearLayout buildHeader() {
         LinearLayout header = new LinearLayout(getContext());
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -128,19 +148,28 @@ public final class DrawerPanel extends FrameLayout {
         headerTitle.setText("APPS");
         headerTitle.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         headerTitle.setAllCaps(true);
-        headerTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(4.4f, 14f));
+        headerTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_TITLE_CQW, SIZE_TITLE_MIN));
         Tint.setRole(headerTitle, Tint.ROLE_INK);
         header.addView(headerTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView homeButton = new TextView(getContext());
         homeButton.setText("HOME");
         homeButton.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        homeButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(3.2f, 11f));
+        homeButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_ACTION_CQW, SIZE_ACTION_MIN));
         Tint.setRole(homeButton, Tint.ROLE_P);
         homeButton.setOnClickListener(v -> { if (onHome != null) onHome.run(); });
         header.addView(homeButton);
 
         return header;
+    }
+
+    @Override public android.view.WindowInsets onApplyWindowInsets(android.view.WindowInsets insets) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
+            header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
+                    header.getPaddingRight(), header.getPaddingBottom());
+        }
+        return super.onApplyWindowInsets(insets);
     }
 
     public void setOnHomeListener(Runnable r) { this.onHome = r; }
@@ -179,7 +208,7 @@ public final class DrawerPanel extends FrameLayout {
         TextView label = new TextView(getContext());
         label.setText(name);
         label.setTypeface(Typeface.MONOSPACE, name.equals(activeTab) ? Typeface.BOLD : Typeface.NORMAL);
-        label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(3f, 10f));
+        label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_TAB_CQW, SIZE_TAB_MIN));
         if (palette != null) label.setTextColor(name.equals(activeTab) ? palette.p : palette.ink);
         chip.addView(label);
 
@@ -219,9 +248,11 @@ public final class DrawerPanel extends FrameLayout {
         if (!cats.contains(upper)) cats.add(upper);
         prefs.setCategories(cats);
         activeTab = upper;
-        sheet.close();
         rebuildTabs();
         applyFilter();
+        // Stay in the sheet and let the user tap apps straight into the new
+        // category — no separate window, same BottomSheet (issue #4).
+        openMembershipSheet(upper);
     }
 
     private void deleteCategory(String name) {
@@ -283,6 +314,56 @@ public final class DrawerPanel extends FrameLayout {
         } catch (ActivityNotFoundException ignored) {
             // No Settings app to resolve this — nothing we can do.
         }
+    }
+
+    private void openUninstall(AppEntry app) {
+        Intent intent = new Intent(Intent.ACTION_DELETE);
+        intent.setData(Uri.fromParts("package", app.packageName, null));
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // No uninstaller to resolve this — nothing we can do.
+        }
+    }
+
+    /**
+     * Long-press quick-action box (issue #5): a small popup anchored just
+     * below the pressed row, offering Launch / Uninstall / More Details —
+     * replacing the old behaviour of jumping straight to system App Info.
+     */
+    private void showAppActions(AppEntry app, View anchor) {
+        LinearLayout box = new LinearLayout(getContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        android.graphics.drawable.GradientDrawable boxBg = new android.graphics.drawable.GradientDrawable();
+        int borderPx = Math.round(Math.max(1, metrics.cqw(0.8f)));
+        boxBg.setStroke(borderPx, palette != null ? palette.p : 0xFF888888);
+        boxBg.setColor(palette != null ? palette.bg : 0xFF202020);
+        box.setBackground(boxBg);
+        int padH = Math.round(metrics.cqw(4.5f));
+        int padV = Math.round(metrics.cqw(2f));
+
+        android.widget.PopupWindow popup = new android.widget.PopupWindow(box,
+                Math.round(metrics.cqw(38f)), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setElevation(Math.round(metrics.cqw(1f)));
+
+        box.addView(actionRow("LAUNCH", padH, padV, () -> { popup.dismiss(); launch(app); }));
+        box.addView(actionRow("UNINSTALL / DISABLE", padH, padV, () -> { popup.dismiss(); openUninstall(app); }));
+        box.addView(actionRow("MORE DETAILS", padH, padV, () -> { popup.dismiss(); openAppInfo(app); }));
+
+        popup.showAsDropDown(anchor, 0, 0);
+    }
+
+    private View actionRow(String text, int padH, int padV, Runnable onClick) {
+        TextView row = new TextView(getContext());
+        row.setText(text);
+        row.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_TAB_CQW, SIZE_TAB_MIN));
+        row.setPadding(padH, padV, padH, padV);
+        row.setTextColor(palette != null ? palette.ink : 0xFFFFFFFF);
+        row.setOnClickListener(v -> onClick.run());
+        return row;
     }
 
     private static final int TYPE_SECTION = 0;
@@ -352,6 +433,7 @@ public final class DrawerPanel extends FrameLayout {
             TextView label = new TextView(getContext());
             label.setText(String.valueOf(letter));
             label.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_TAB_CQW, SIZE_TAB_MIN));
             if (palette != null) label.setTextColor(palette.ink);
             v.addView(label);
             View rule = new View(getContext());
@@ -381,7 +463,7 @@ public final class DrawerPanel extends FrameLayout {
                 row.setPadding(padH, padV, padH, padV);
 
                 icon = new ImageView(getContext());
-                int iconSize = Math.round(metrics.cqw(9f));
+                int iconSize = Math.round(metrics.cqw(SIZE_ICON_CQW));
                 row.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
 
                 textCol = new LinearLayout(getContext());
@@ -393,11 +475,11 @@ public final class DrawerPanel extends FrameLayout {
 
                 label = new TextView(getContext());
                 label.setTypeface(Typeface.MONOSPACE);
-                label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(3.2f, 11f));
+                label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_ROW_CQW, SIZE_ROW_MIN));
 
                 caption = new TextView(getContext());
                 caption.setTypeface(Typeface.MONOSPACE);
-                caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(2.3f, 9f));
+                caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_CAPTION_CQW, SIZE_CAPTION_MIN));
 
                 textCol.addView(label);
                 textCol.addView(caption);
@@ -410,7 +492,7 @@ public final class DrawerPanel extends FrameLayout {
                 label.setText(app.label);
                 caption.setText("");
             } else {
-                icon.setImageBitmap(icons.iconFor(app, palette, Math.round(metrics.cqw(9f))));
+                icon.setImageBitmap(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
                 label.setText(app.label);
                 caption.setText(app.categories.isEmpty()
                         ? "UNSORTED"

@@ -41,7 +41,7 @@ public final class AlphaScrubber extends View {
     public void setOnLetterListener(OnLetterListener l) { this.listener = l; }
 
     @Override protected void onMeasure(int wSpec, int hSpec) {
-        int width = Math.round(metrics.cqw(7f));
+        int width = Math.round(metrics.cqw(8.5f));
         setMeasuredDimension(width, MeasureSpec.getSize(hSpec));
     }
 
