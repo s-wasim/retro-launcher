@@ -374,14 +374,14 @@ deliberately; none is a silent omission.
 
 | # | Area | Prototype | Native | Why |
 |---|---|---|---|---|
-| 1 | **Weather** | Synthetic. `tempC = 17 + 9·sunAlt − 5·cover − 4·precip`; conditions from a debug slider via `weatherName()`'s 10 bands. No API anywhere. | Real data from Open-Meteo (free, no key) using `ACCESS_COARSE_LOCATION`, cached, refreshed ~30 min. Feeds the same `w` scalar, so clouds and rain track reality. | Fake temperature on a real phone is worse than none. Android cannot read another app's weather data at any permission level. |
+| 1 | **Weather** | Synthetic. `tempC = 17 + 9·sunAlt − 5·cover − 4·precip`; conditions from a debug slider via `weatherName()`'s 10 bands. No API anywhere. | Real data from Open-Meteo (free, no key) using `ACCESS_COARSE_LOCATION`. Good for 30 min, never fetched within 10 min of the last attempt, last good reading persisted. Feeds the same `w` scalar, so clouds and rain track reality. **With no reading** the widget shows `--°` but the sky runs on `SyntheticWeather.drift` — a deterministic per-day character with a gentle hourly swing (amended 2026-08-28, Tier 5). | Fake temperature on a real phone is worse than none — hence `--°`. But a flat `w = 0` fallback leaves anyone who declines location with a permanently cloudless wallpaper, which is a worse lie about the *sky* than a drifting stand-in. The readout is a measurement; the wallpaper is scenery. |
 | 2 | **Icons** | 52 hand-authored glyphs. | Two implementations behind one `IconSource` interface: generated palette tiles, and system icons posterized through the same Bayer + 6-color ramp the wallpaper's tint mode uses. **Decision deferred to a measured gate in Tier 2.** | The glyph table can't cover arbitrary installed apps. Which replacement feels right depends on real-device performance. |
 | 3 | **Categories** | Hand-assigned per demo app. | Auto-filled from `ApplicationInfo.category` (API 26): `SOCIAL→SOCIAL`; `GAME/AUDIO/VIDEO/IMAGE→MEDIA`; `NEWS/PRODUCTIVITY→WORK`; `MAPS/UNDEFINED→UTILITY`. User-editable after. | Android already tags apps. Free, no maintenance list. Games land in MEDIA since the prototype ships no GAMES tab; tabs are user-addable. |
 | 4 | **Long-press on an app** | Opens the category sheet. | Opens system **App Info**. Category editing moves to a long-press on the **tab strip**. | Android convention. Both remain reachable. |
-| 5 | **Search** | None. | **Double-tap anywhere on the home wallpaper** opens a search overlay. No visible affordance. | Requested; keeps the wallpaper unobstructed. |
+| 5 | **Search** | None. | **Double-tap anywhere on the home wallpaper** opens a search overlay. No visible affordance, so the first-run hint carries the only mention of it. Results sit under two headings — `APPS` first, then a single `WEB` row firing `ACTION_WEB_SEARCH`. Ranking is in `core/AppSearch`: exact ▸ label prefix ▸ word prefix ▸ run mid-word, ties to the shorter label. | Requested; keeps the wallpaper unobstructed. Two headings because the app you meant should always be the top item and the escape hatch always in the same place. |
 | 6 | **Dock defaults** | `phone, messages, camera`. | Same three, resolved at first run via the default dialer, SMS and camera intents. | Real apps, same intent. |
 | 7 | **Dock tap** | Does nothing. | Launches the app. | Obviously. |
-| 8 | **Widget taps** | None. | Three independent regions: time → `AlarmClock.ACTION_SHOW_ALARMS`; date → `Intent.CATEGORY_APP_CALENDAR`; weather → best-effort weather-app resolution, no-op if none found. | Owner requirement. Not extracted from the prototype. |
+| 8 | **Widget taps** | None. | Three independent regions, each a *chain* rather than one intent (amended 2026-08-28, Tier 5): time → `ACTION_SHOW_ALARMS`, then a launch intent for a known clock package; date → `CATEGORY_APP_CALENDAR`, then `content://com.android.calendar/time`, then a known calendar package; weather → a known weather package, then a forced weather refresh. Every step logs under the `LaunchChain` tag. | Owner requirement. The chains exist because a single intent silently did nothing on devices whose clock app never declared `ACTION_SHOW_ALARMS` — a swallowed `ActivityNotFoundException` is indistinguishable from a dead tap. |
 | 9 | **Screen time** | Hardcoded. | Real `UsageStatsManager` data, requiring `PACKAGE_USAGE_STATS`. | The screen is pointless with fake numbers. |
 | 10 | **Over-limit** | Label changes only. | Persistent marker in the home widget, plus the wallpaper desaturating toward the palette's grey in proportion to the overage. | Requested: a nag with no notification permission. |
 | 11 | **Theme** | `LIGHT`/`DARK`, default dark, ignores the OS. | Adds `AUTO` following the system dark-mode setting, and defaults to it. | Mirrors the palette's existing AUTO. |
@@ -420,7 +420,15 @@ On top of `HANDOFF.md` §7:
 - [ ] No font file in `res/`; `monospace` throughout
 - [ ] Icon strategy decided at the Tier 2 gate on measured evidence, both
       implementations behind `IconSource`
-- [ ] Widget's three tap regions wired independently (§9 delta 8)
+- [x] Widget's three tap regions wired independently (§9 delta 8) — each a
+      fallback chain, logged under `LaunchChain`
 - [ ] All 14 persistence keys in `SharedPreferences`; launcher always reopens
-      on home
+      on home — plus 6 Tier 5 keys for the cached reading and last fix
 - [ ] Every §9 delta is either implemented or explicitly reported as cut
+- [x] Panel slides own their translation exclusively: no layout pass writes
+      under a running animator, only moving panels animate, and no hardware
+      layer is taken for a translation-only slide
+
+**Still unverified on a device** (Tier 5 close-out): panel slide smoothness,
+the clock/calendar/weather tap chains against a real OEM clock app, and a live
+Open-Meteo fetch with location granted.
