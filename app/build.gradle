@@ -1,11 +1,11 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'com.minimal.launcher'
+    namespace 'com.retro.launcher'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.minimal.launcher"
+        applicationId "com.retro.launcher"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -35,8 +35,10 @@ android {
 
     // Keep the APK to one language and one density
     androidResources {
-        localeFilters += ['en']
+        localeFilters.set(['en'])
     }
+}
 
-    dependencies { }   // stays empty — see constraints
+dependencies {
+    implementation project(':core')
 }

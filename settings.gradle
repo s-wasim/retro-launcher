@@ -11,5 +11,6 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "MinimalLauncher"
+rootProject.name = "RetroLauncher"
+include ':core'
 include ':app'
