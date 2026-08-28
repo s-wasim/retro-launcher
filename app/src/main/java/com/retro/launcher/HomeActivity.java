@@ -15,7 +15,6 @@ import android.os.Looper;
 import android.os.Process;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.View;
 import android.widget.FrameLayout;
 
@@ -63,6 +62,7 @@ public class HomeActivity extends Activity {
     private DrawerPanel drawer;
     private SettingsPanel settings;
     private ScreenTimePanel screenTime;
+    private SearchOverlay search;
     private BottomSheet sheet;
     private SetupScreen setupScreen;
     private HintOverlay hintOverlay;
@@ -84,6 +84,9 @@ public class HomeActivity extends Activity {
         @Override public void run() {
             refreshPalette();
             refreshTime();
+            // Cheap: the repository's own policy decides whether this minute
+            // is one where a fetch is actually due.
+            weatherRepository.refresh(false, HomeActivity.this::refreshTime);
             ticker.postDelayed(this, 60_000L);
         }
     };
@@ -93,7 +96,7 @@ public class HomeActivity extends Activity {
         goEdgeToEdge();
 
         prefs = new Prefs(this);
-        weatherRepository = new WeatherRepository();
+        weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
@@ -128,9 +131,7 @@ public class HomeActivity extends Activity {
             @Override public void onAdd() { openDockSheet(-1); }
         });
         settings.setPermissionActionListener(new SettingsPanel.PermissionActionListener() {
-            @Override public void onRequestLocation() {
-                requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
-            }
+            @Override public void onRequestLocation() { requestLocation(); }
             @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
         });
 
@@ -138,17 +139,27 @@ public class HomeActivity extends Activity {
         screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
         screenTime.setOnLimitChangedListener(this::refreshUsage);
 
+        // Tapping the weather line asks for a fresh reading. The repository's
+        // 10-minute floor means leaning on it cannot become a poll.
+        home.clock.setOnWeatherTap(() -> weatherRepository.refresh(true, this::refreshTime));
+
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
         });
 
         root.setPanels(home, settings, drawer, screenTime);
-        root.setDoubleTapListener(() -> Log.d("HomeActivity", "double-tap search stub — real overlay lands in Tier 5"));
+
+        search = new SearchOverlay(this, metrics, appRepository);
+        root.setDoubleTapListener(() -> {
+            search.setPalette(palette);
+            search.open();
+        });
 
         setupScreen = new SetupScreen(this, metrics);
         setupScreen.setListener(new SetupScreen.Listener() {
             @Override public void onGrantUsageAccess() { openUsageAccessSettings(); }
+            @Override public void onGrantLocation() { requestLocation(); }
             @Override public void onContinue() { showHint(); }
         });
 
@@ -158,7 +169,8 @@ public class HomeActivity extends Activity {
         FrameLayout stack = new FrameLayout(this);
         stack.addView(sky);   // z=0, behind everything, never moves
         stack.addView(root);
-        stack.addView(sheet); // overlay, above every panel
+        stack.addView(sheet);   // overlay, above every panel
+        stack.addView(search);  // above the sheet: double-tap wins
         stack.addView(setupScreen);
         stack.addView(hintOverlay);
         setContentView(stack);
@@ -269,15 +281,21 @@ public class HomeActivity extends Activity {
             drawer.setPalette(palette);
             settings.setPalette(palette);
             screenTime.setPalette(palette);
+            if (search != null) search.setPalette(palette);
         }
     }
 
     private void refreshTime() {
         Calendar now = Calendar.getInstance();
         home.setTime(now);
+
+        // The sky always gets a value — a synthetic one when we have no
+        // reading — but the widget must not present invented weather as a
+        // measurement, so it gets null and renders "--°" instead (spec §3.6).
         Weather w = weatherRepository.current(decimalHour());
-        home.setWeather(w);
-        settings.setWeather(w);
+        Weather shown = weatherRepository.hasReading() ? w : null;
+        home.setWeather(shown);
+        settings.setWeather(shown);
         sky.setWeather(w.w);
     }
 
@@ -295,8 +313,14 @@ public class HomeActivity extends Activity {
 
     private void refreshPermissionStatus() {
         boolean usageGranted = hasUsageAccess();
-        settings.setPermissionStatus(hasLocationPermission(), usageGranted);
-        setupScreen.setGranted(usageGranted);
+        boolean locationGranted = hasLocationPermission();
+        settings.setPermissionStatus(locationGranted, usageGranted);
+        setupScreen.setGranted(usageGranted, locationGranted);
+    }
+
+    private void requestLocation() {
+        requestPermissions(
+                new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
     }
 
     /** Pulls fresh device usage data and drives the panel, the over-limit
@@ -318,7 +342,12 @@ public class HomeActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode == REQ_LOCATION) refreshPermissionStatus();
+        if (requestCode == REQ_LOCATION) {
+            refreshPermissionStatus();
+            // Just granted: go and get a reading now rather than waiting out
+            // the freshness window with an empty widget.
+            weatherRepository.refresh(true, this::refreshTime);
+        }
     }
 
     @Override protected void onResume() {
@@ -328,6 +357,7 @@ public class HomeActivity extends Activity {
         drawer.refresh();
         refreshPermissionStatus();
         refreshUsage();
+        weatherRepository.refresh(false, this::refreshTime);
     }
 
     @Override protected void onPause() {
@@ -348,7 +378,9 @@ public class HomeActivity extends Activity {
 
     /** Back must never leave the home screen. */
     @Override public void onBackPressed() {
-        if (sheet.isOpen()) {
+        if (search.isOpen()) {
+            search.close();
+        } else if (sheet.isOpen()) {
             sheet.close();
         } else if (root.currentView() != LauncherRoot.VIEW_HOME) {
             root.goTo(LauncherRoot.VIEW_HOME);

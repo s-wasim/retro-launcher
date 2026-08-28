@@ -11,25 +11,30 @@ import android.widget.TextView;
 import com.retro.launcher.core.Metrics;
 
 /**
- * First-run screen, shown once ahead of {@link HintOverlay}: explains that
- * Screen Time needs Usage Access and offers the
- * {@code ACTION_USAGE_ACCESS_SETTINGS} grant flow. Continuing works either
- * way — no permission blocks the launcher (spec §5, DESIGN_NOTES §9 row 10's
- * permissions caption).
+ * First-run screen, shown once ahead of {@link HintOverlay}: one row per
+ * optional permission, each opening the right grant flow.
+ *
+ * Usage Access feeds Screen Time; coarse location feeds the weather reading
+ * (Tier 5). Continuing works with neither — no permission blocks the launcher
+ * (spec §5, DESIGN_NOTES §9 row 10's permissions caption), and a skipped setup
+ * stays recoverable from Settings' permissions block.
  */
 public final class SetupScreen extends FrameLayout {
 
     public interface Listener {
         void onGrantUsageAccess();
+        void onGrantLocation();
         void onContinue();
     }
 
     private static final int COLOR_GRANTED = 0xFF6FE38A;
     private static final int COLOR_NOT_GRANTED = 0xFFE3A66F;
 
-    private final TextView statusRow;
+    private final TextView usageRow;
+    private final TextView locationRow;
     private Listener listener = new Listener() {
         @Override public void onGrantUsageAccess() {}
+        @Override public void onGrantLocation() {}
         @Override public void onContinue() {}
     };
 
@@ -55,8 +60,8 @@ public final class SetupScreen extends FrameLayout {
         column.addView(title);
 
         TextView body = new TextView(context);
-        body.setText("SCREEN TIME NEEDS USAGE ACCESS TO SHOW REAL DATA. "
-                + "YOU CAN SKIP THIS AND GRANT IT LATER FROM SETTINGS.");
+        body.setText("SCREEN TIME NEEDS USAGE ACCESS. WEATHER NEEDS A COARSE "
+                + "LOCATION. YOU CAN SKIP BOTH AND GRANT THEM LATER FROM SETTINGS.");
         body.setTypeface(Typeface.MONOSPACE);
         body.setTextColor(0xFFAAAAAA);
         body.setGravity(Gravity.CENTER);
@@ -67,18 +72,13 @@ public final class SetupScreen extends FrameLayout {
         bodyLp.topMargin = Math.round(metrics.cqw(3f));
         column.addView(body, bodyLp);
 
-        statusRow = new TextView(context);
-        statusRow.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        statusRow.setAllCaps(true);
-        statusRow.setGravity(Gravity.CENTER);
-        statusRow.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
-                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
-        statusRow.setOnClickListener(v -> listener.onGrantUsageAccess());
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusLp.topMargin = Math.round(metrics.cqw(6f));
-        column.addView(statusRow, statusLp);
-        setGranted(false);
+        usageRow = permissionRow(context, metrics, () -> listener.onGrantUsageAccess());
+        column.addView(usageRow, rowParams(metrics, 6f));
+
+        locationRow = permissionRow(context, metrics, () -> listener.onGrantLocation());
+        column.addView(locationRow, rowParams(metrics, 3f));
+
+        setGranted(false, false);
 
         TextView continueBtn = new TextView(context);
         continueBtn.setText("CONTINUE");
@@ -103,10 +103,37 @@ public final class SetupScreen extends FrameLayout {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
     }
 
+    private TextView permissionRow(Context context, Metrics metrics, Runnable onTap) {
+        TextView row = new TextView(context);
+        row.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        row.setAllCaps(true);
+        row.setGravity(Gravity.CENTER);
+        row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
+        // A bare line of text is a small target; the padding widens the tap
+        // region without moving the type.
+        int padV = Math.round(metrics.cqw(2f));
+        row.setPadding(0, padV, 0, padV);
+        row.setOnClickListener(v -> onTap.run());
+        return row;
+    }
+
+    private static LinearLayout.LayoutParams rowParams(Metrics metrics, float topCqw) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = Math.round(metrics.cqw(topCqw));
+        return lp;
+    }
+
     public void setListener(Listener l) { this.listener = l; }
 
-    public void setGranted(boolean granted) {
-        statusRow.setText(granted ? "USAGE ACCESS — GRANTED" : "USAGE ACCESS — TAP TO GRANT");
-        statusRow.setTextColor(granted ? COLOR_GRANTED : COLOR_NOT_GRANTED);
+    public void setGranted(boolean usageGranted, boolean locationGranted) {
+        state(usageRow, usageGranted, "USAGE ACCESS");
+        state(locationRow, locationGranted, "LOCATION");
+    }
+
+    private static void state(TextView row, boolean granted, String label) {
+        row.setText(granted ? label + " — GRANTED" : label + " — TAP TO GRANT");
+        row.setTextColor(granted ? COLOR_GRANTED : COLOR_NOT_GRANTED);
     }
 }

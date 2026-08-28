@@ -457,8 +457,11 @@ public final class SettingsPanel extends FrameLayout {
         tempSection.addView(unitRow);
 
         TextView caption = new TextView(getContext());
-        String condition = weather != null ? weather.label : "—";
-        caption.setText("READ FROM WALLPAPER STATE — " + condition + " · LIVE CLOCK");
+        // Null means no live reading — the sky is running on the synthetic
+        // stand-in, and saying so beats implying the dash is a measurement.
+        caption.setText(weather != null
+                ? "OPEN-METEO — " + weather.label + " · " + weather.tempIn(prefs.unit()) + "°"
+                : "NO READING — SYNTHETIC SKY · NEEDS LOCATION");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
         caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
