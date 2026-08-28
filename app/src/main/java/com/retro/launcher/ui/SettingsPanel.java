@@ -139,9 +139,16 @@ public final class SettingsPanel extends FrameLayout {
         close.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         close.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
+        int closePad = Math.round(metrics.cqw(3f));
+        close.setPadding(closePad, closePad, closePad, closePad);
         Tint.setRole(close, Tint.ROLE_P);
         close.setOnClickListener(v -> onClose.run());
         header.addView(close);
+
+        // The header sits outside the no-swipe scroll content below it — mark
+        // it no-swipe too, otherwise a tap that lands a hair off CLOSE reads
+        // as the start of a horizontal drag and snaps the panel home anyway.
+        LauncherRoot.setNoSwipe(header);
 
         return header;
     }

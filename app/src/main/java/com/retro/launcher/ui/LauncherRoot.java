@@ -183,12 +183,16 @@ public final class LauncherRoot extends ViewGroup {
     public void goTo(int next) {
         int w = getWidth(), h = getHeight();
         this.view = next;
+        // withLayer() caches each panel as a hardware bitmap for the
+        // duration of the slide instead of re-rasterising the whole subtree
+        // every frame — without it, panels with lots of text/content visibly
+        // smear into place instead of snapping cleanly.
         settings.animate().translationX(next == VIEW_SETTINGS ? 0 : -w)
-                .setDuration(SETTLE_MS).setInterpolator(settle).start();
+                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
         drawer.animate().translationX(next == VIEW_DRAWER ? 0 : w)
-                .setDuration(SETTLE_MS).setInterpolator(settle).start();
+                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
         time.animate().translationY(next == VIEW_TIME ? 0 : h)
-                .setDuration(SETTLE_MS).setInterpolator(settle).start();
+                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
     }
 
     private boolean inGestureInset(float x) {

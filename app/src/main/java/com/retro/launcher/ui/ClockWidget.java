@@ -152,9 +152,10 @@ public final class ClockWidget extends FrameLayout {
         try {
             fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(fallback);
-        } catch (ActivityNotFoundException ignored) {
-            // No clock/calendar app installed — a missing intent target must
-            // never crash the home screen. See spec §6.
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            // No clock/calendar app installed, or the device refuses the
+            // intent (e.g. a restricted/managed profile) — either way a tap
+            // here must never crash the home screen. See spec §6.
         }
     }
 }

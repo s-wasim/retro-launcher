@@ -156,9 +156,16 @@ public final class DrawerPanel extends FrameLayout {
         homeButton.setText("HOME");
         homeButton.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         homeButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_ACTION_CQW, SIZE_ACTION_MIN));
+        int homePad = Math.round(metrics.cqw(3f));
+        homeButton.setPadding(homePad, homePad, homePad, homePad);
         Tint.setRole(homeButton, Tint.ROLE_P);
         homeButton.setOnClickListener(v -> { if (onHome != null) onHome.run(); });
         header.addView(homeButton);
+
+        // The header sits above the no-swipe tab strip/list below it — mark
+        // it no-swipe too, otherwise a tap that lands a hair off HOME reads
+        // as the start of a horizontal drag and snaps the drawer home anyway.
+        LauncherRoot.setNoSwipe(header);
 
         return header;
     }
