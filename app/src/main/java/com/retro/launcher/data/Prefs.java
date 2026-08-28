@@ -1,0 +1,84 @@
+package com.retro.launcher.data;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import com.retro.launcher.core.PaletteResolver;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * The prototype's fourteen persisted keys, one for one. Deliberately absent:
+ * the current view, tab and sheet — the launcher always reopens on home.
+ * See DESIGN_NOTES §8.
+ *
+ * Every getter falls back to its own default independently, so a corrupt dock
+ * list cannot take the palette down with it.
+ */
+public final class Prefs {
+
+    private static final String FILE = "retro-launcher-v1";
+
+    public static final String K_PAL      = "pal";
+    public static final String K_THEME    = "theme";
+    public static final String K_TINT     = "tint";
+    public static final String K_HOUR12   = "hour12";
+    public static final String K_SECONDS  = "seconds";
+    public static final String K_BLINK    = "blink";
+    public static final String K_FMT_IDX  = "fmtIdx";
+    public static final String K_CUSTOM   = "custom";
+    public static final String K_UNIT     = "unit";
+    public static final String K_DOCK     = "dock";
+    public static final String K_CATS     = "cats";
+    public static final String K_MEMBERS  = "memberships";
+    public static final String K_LIMIT    = "limit";
+    public static final String K_HINT     = "hint";
+
+    private final SharedPreferences sp;
+
+    public Prefs(Context context) {
+        this.sp = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    public String  palette()   { return sp.getString(K_PAL, PaletteResolver.AUTO); }
+    public String  theme()     { return sp.getString(K_THEME, PaletteResolver.SYSTEM); }
+    public boolean tint()      { return sp.getBoolean(K_TINT, false); }
+    public boolean hour12()    { return sp.getBoolean(K_HOUR12, true); }
+    public boolean seconds()   { return sp.getBoolean(K_SECONDS, false); }
+    public boolean blink()     { return sp.getBoolean(K_BLINK, true); }
+    public int     fmtIdx()    { return sp.getInt(K_FMT_IDX, 0); }
+    public String  custom()    { return sp.getString(K_CUSTOM, ""); }
+    public String  unit()      { return sp.getString(K_UNIT, "C"); }
+    public int     limit()     { return sp.getInt(K_LIMIT, 240); }
+    public boolean hintShown() { return sp.getBoolean(K_HINT, false); }
+
+    /** Dock is stored as a newline-joined component list, max 5. */
+    public List<String> dock() {
+        String raw = sp.getString(K_DOCK, "");
+        List<String> out = new ArrayList<>();
+        if (raw.isEmpty()) return out;
+        for (String s : raw.split("\n")) if (!s.isEmpty()) out.add(s);
+        while (out.size() > 5) out.remove(out.size() - 1);
+        return out;
+    }
+
+    public void setDock(List<String> components) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < components.size() && i < 5; i++) {
+            if (i > 0) b.append('\n');
+            b.append(components.get(i));
+        }
+        sp.edit().putString(K_DOCK, b.toString()).apply();
+    }
+
+    public List<String> categories() {
+        String raw = sp.getString(K_CATS, "SOCIAL\nWORK\nMEDIA\nUTILITY");
+        return new ArrayList<>(Arrays.asList(raw.split("\n")));
+    }
+
+    public void putString(String key, String value)  { sp.edit().putString(key, value).apply(); }
+    public void putBool(String key, boolean value)   { sp.edit().putBoolean(key, value).apply(); }
+    public void putInt(String key, int value)        { sp.edit().putInt(key, value).apply(); }
+}
