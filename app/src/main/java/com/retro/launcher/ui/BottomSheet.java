@@ -26,9 +26,11 @@ public final class BottomSheet extends FrameLayout {
 
     private final Metrics metrics;
     private final TextView titleView;
+    private final LinearLayout header;
     private final LinearLayout rows;
     private final LinearLayout addRow;
     private final EditText addField;
+    private final int headerPadTop;
     private Palette palette;
 
     public BottomSheet(Context context, Metrics metrics) {
@@ -50,11 +52,12 @@ public final class BottomSheet extends FrameLayout {
         int borderPx = Math.round(Math.max(1, metrics.cqw(0.8f)));
         panelBg.setStroke(borderPx, 0);
 
-        LinearLayout header = new LinearLayout(context);
+        header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         int pad = Math.round(metrics.cqw(4.5f));
         header.setPadding(pad, pad, pad, pad);
+        headerPadTop = pad;
 
         titleView = new TextView(context);
         titleView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -109,6 +112,15 @@ public final class BottomSheet extends FrameLayout {
     }
 
     private final TextView addButton;
+
+    @Override public android.view.WindowInsets onApplyWindowInsets(android.view.WindowInsets insets) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
+            header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
+                    header.getPaddingRight(), header.getPaddingBottom());
+        }
+        return super.onApplyWindowInsets(insets);
+    }
 
     public void setPalette(Palette p) {
         this.palette = p;
