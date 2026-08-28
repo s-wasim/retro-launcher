@@ -105,6 +105,23 @@ public final class WeatherRepository {
         }, "weather-fetch").start();
     }
 
+    /**
+     * The coarse fix as {@code {latitude, longitude}}, or null if we have
+     * never had one. Costs a {@code getLastKnownLocation} read — no provider
+     * is ever started — so callers on the minute tick are fine.
+     *
+     * <p>Public because the fix is not only the weather's business: the sky's
+     * moon needs the latitude to know which way up to draw the phase.
+     */
+    public double[] fix() {
+        double[] live = location.lastKnown();
+        if (live != null) {
+            rememberFix(live);
+            return live;
+        }
+        return lastRememberedFix();
+    }
+
     // ---- last good value, across restarts --------------------------------
 
     private void persist() {

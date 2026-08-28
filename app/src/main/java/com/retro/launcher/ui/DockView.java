@@ -8,20 +8,24 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
+import com.retro.launcher.data.AppEntry;
+import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.theme.Tint;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Up to five pinned apps plus a trailing "add" slot. See DESIGN_NOTES §7a and
- * §9 delta 6/7. Icons here are plain letter tiles — the real IconSource seam
- * arrives with the Tier 2 gate.
+ * §9 delta 6/7. Slots draw through the same {@link IconSource} the drawer
+ * uses, so a dock tile and its drawer row are the same icon.
  */
 public final class DockView extends LinearLayout {
 
@@ -37,13 +41,15 @@ public final class DockView extends LinearLayout {
 
     private final GradientDrawable background = new GradientDrawable();
     private final Metrics metrics;
+    private final IconSource icons;
     private Palette palette;
     private List<String> entries = new ArrayList<>();
     private SlotActionListener slotActionListener;
 
-    public DockView(Context context, Metrics metrics) {
+    public DockView(Context context, Metrics metrics, IconSource icons) {
         super(context);
         this.metrics = metrics;
+        this.icons = icons;
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
         background.setShape(GradientDrawable.RECTANGLE);
@@ -95,17 +101,10 @@ public final class DockView extends LinearLayout {
         col.setOrientation(VERTICAL);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        TextView tile = new TextView(getContext());
-        tile.setGravity(Gravity.CENTER);
-        tile.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        tile.setTextColor(palette.p);
-        GradientDrawable tileBg = new GradientDrawable();
-        tileBg.setColor(palette.tile);
-        tileBg.setCornerRadius(metrics.cqw(1.5f));
-        tile.setBackground(tileBg);
-        tile.setText(labelFor(component).substring(0, 1));
-        tile.setLayoutParams(new LinearLayout.LayoutParams(
-                Math.round(metrics.cqw(13f)), Math.round(metrics.cqw(13f))));
+        int tileSize = Math.round(metrics.cqw(13f));
+        ImageView tile = new ImageView(getContext());
+        tile.setImageBitmap(icons.iconFor(entryFor(component), palette, tileSize));
+        tile.setLayoutParams(new LinearLayout.LayoutParams(tileSize, tileSize));
 
         TextView caption = new TextView(getContext());
         caption.setTypeface(Typeface.MONOSPACE);
@@ -145,6 +144,15 @@ public final class DockView extends LinearLayout {
             if (slotActionListener != null) slotActionListener.onAdd();
         });
         return plus;
+    }
+
+    /** The dock stores components, not drawer rows; the icon source wants a
+     *  row. Only the package name and the letter matter to it. */
+    private static AppEntry entryFor(String component) {
+        int slash = component.indexOf('/');
+        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        String activity = slash >= 0 ? component.substring(slash + 1) : "";
+        return new AppEntry(labelFor(component), pkg, activity, Collections.emptyList(), false);
     }
 
     /** Shared with SettingsPanel's dock editor so both list the same names. */
