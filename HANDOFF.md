@@ -5,9 +5,36 @@
 
 ---
 
+## 0. Amendments — 2026-08-28
+
+This document was written before the design existed. Once the "Retro Launcher"
+prototype arrived it turned out to specify four screens, real usage data and
+live weather, which several constraints below forbid. The following changes
+were **approved by the project owner** on 2026-08-28. Where this section and
+the rest of the document disagree, this section wins.
+
+| # | Original rule | Amended to | Reason |
+|---|---|---|---|
+| 1 | §1 "No `<uses-permission>` entries at all" | Exactly **three** permitted: `PACKAGE_USAGE_STATS`, `INTERNET`, `ACCESS_COARSE_LOCATION` | Screen time needs real usage data; the weather line needs real weather. Android exposes neither without these. No `POST_NOTIFICATIONS` — the over-limit nag is in-launcher. |
+| 2 | §1 "Size budget: release APK under 80 KB" | **Not a priority.** Report actual size every build and flag what drives it, but do not cut features to hit a number. | Four screens, a per-pixel renderer and ten palettes will exceed 80 KB. The owner would rather have the design than the number. |
+| 3 | §4 "Keep it to two files. No abstraction layers, no interfaces, no DI." | Superseded by the module layout in the spec (~25 focused classes across `ui/ sky/ theme/ icons/ data/ util/`). | Written for a one-screen `ListView`. Unworkable at four screens. Still no DI, still no frameworks. |
+| 4 | §1 "Zero third-party dependencies — the `dependencies {}` block should be empty" | `testImplementation 'junit:junit:4.13.2'` permitted. **The shipped APK still has zero dependencies.** | `testImplementation` is compile-time-only for local JVM tests and never enters the APK. Without it nothing in the project is unit-testable, and roughly 40% of this codebase is pure logic — sky interpolation, palette thresholds, the date tokeniser, weather parsing, usage aggregation — where a silent off-by-one shows up as a wrong colour at 04:36 and nowhere else. |
+| 5 | §3 "`git init` only — do not add a remote, do not push" | Applied to scaffolding, now complete. A remote is required for CI. | The owner wires it up when ready. |
+| 6 | §8 open questions | All resolved — see `design/DESIGN_NOTES.md` §9. | Answered by the owner during design. |
+
+Unchanged and still binding: **Java only, no Kotlin. No AndroidX, no Compose,
+no Material. `ListView`, not `RecyclerView`. `minSdk 26`, `targetSdk 34`.
+R8 full mode + `shrinkResources`. No image assets. No font files. No WebView.**
+
+---
+
 ## 1. Non-negotiable constraints
 
 These exist to keep the APK in the 20–80 KB range. Do not relax any of them without asking.
+
+> ⚠️ **Rows 1, 2 and 4 of this table have been amended — see §0.** Permissions,
+> the size budget, and the empty `dependencies {}` block all changed on
+> 2026-08-28.
 
 | Rule | Reason |
 |---|---|
@@ -25,7 +52,7 @@ These exist to keep the APK in the 20–80 KB range. Do not relax any of them wi
 
 ## 2. The design handoff — read this carefully
 
-The design arrives as a **web prototype produced by Claude Design from a Figma file**. It will live at `design/prototype/`.
+The design arrives as a **Claude Design web prototype**. It will live at `design/prototype/`.
 
 **That prototype is a visual reference ONLY.**
 
@@ -211,7 +238,11 @@ Behavior:
 6. Override `onBackPressed()` to do nothing — back must not exit the home screen.
 7. Refresh the list in `onResume()` so installs and uninstalls show up.
 
-Keep it to two files. No abstraction layers, no interfaces, no DI.
+~~Keep it to two files. No abstraction layers, no interfaces, no DI.~~
+**Superseded — see §0 row 3.** The design turned out to be four screens; the
+module layout in `docs/superpowers/specs/2026-08-28-retro-launcher-design.md`
+replaces this. Note also that the `HomeActivity` behaviour described above is
+really the **app drawer**, not the home screen — see `design/DESIGN_NOTES.md` §1.
 
 ---
 
@@ -304,6 +335,12 @@ Do not attempt to compile locally. If Gradle or the Android SDK is absent, that 
 ---
 
 ## 8. Open questions to raise, not guess
+
+> ✅ **All four were answered by the owner on 2026-08-28** — the resolutions are
+> recorded in `design/DESIGN_NOTES.md` §9. In short: no search field in the
+> drawer (double-tap the home wallpaper instead); a dock of up to five pinned
+> apps, seeded from the default dialer/SMS/camera; icons decided at a measured
+> gate in Tier 2; and an animated per-pixel wallpaper, not a solid colour.
 
 If any of these are unspecified when you reach them, ask rather than deciding:
 - Does the design show a search field, or a plain scrolling list?
