@@ -34,4 +34,22 @@ public final class Palette {
         int alpha = dark ? 0xD9 : 0xE0;
         return (alpha << 24) | (bg & 0x00FFFFFF);
     }
+
+    /**
+     * The six role colours (excluding {@code ink}), sorted ascending by
+     * luminance — the ramp {@link Quantize} posterizes wallpaper pixels and
+     * app icons against.
+     */
+    public int[] ramp() {
+        int[] r = { bg, tile, p, a, s, h };
+        for (int i = 1; i < r.length; i++) {
+            int v = r[i], j = i - 1;
+            while (j >= 0 && Quantize.luminance(r[j]) > Quantize.luminance(v)) {
+                r[j + 1] = r[j];
+                j--;
+            }
+            r[j + 1] = v;
+        }
+        return r;
+    }
 }
