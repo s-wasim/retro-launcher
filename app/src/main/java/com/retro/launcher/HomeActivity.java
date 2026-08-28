@@ -41,6 +41,7 @@ import com.retro.launcher.ui.HintOverlay;
 import com.retro.launcher.ui.HomePanel;
 import com.retro.launcher.ui.LauncherRoot;
 import com.retro.launcher.ui.ScreenTimePanel;
+import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
 
@@ -139,9 +140,11 @@ public class HomeActivity extends Activity {
         screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
         screenTime.setOnLimitChangedListener(this::refreshUsage);
 
-        // Tapping the weather line asks for a fresh reading. The repository's
-        // 10-minute floor means leaning on it cannot become a poll.
-        home.clock.setOnWeatherTap(() -> weatherRepository.refresh(true, this::refreshTime));
+        // The weather region opens a weather app (DESIGN_NOTES §9 row 8). With
+        // none installed it used to do nothing; now it asks for a fresh
+        // reading instead. The repository's 10-minute floor means leaning on
+        // it cannot turn into a poll.
+        home.clock.setOnNoWeatherApp(() -> weatherRepository.refresh(true, this::refreshTime));
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }

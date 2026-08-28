@@ -31,7 +31,10 @@ public final class HintOverlay extends FrameLayout {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER);
 
-        String[] lines = {"SWIPE TO MOVE", "→ SETTINGS", "← APP DRAWER", "↑ SCREEN TIME"};
+        // Search has no visible affordance by design (DESIGN_NOTES §5), so
+        // this line is the only place anyone learns it exists.
+        String[] lines = {"SWIPE TO MOVE", "→ SETTINGS", "← APP DRAWER",
+                "↑ SCREEN TIME", "DOUBLE-TAP TO SEARCH"};
         for (String line : lines) {
             TextView t = new TextView(context);
             t.setText(line);

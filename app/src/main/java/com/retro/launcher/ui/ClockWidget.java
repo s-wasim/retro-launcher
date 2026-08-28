@@ -43,7 +43,7 @@ public final class ClockWidget extends FrameLayout {
     private final Prefs prefs;
     private Calendar lastTime;
 
-    private Runnable onTimeTap, onDateTap, onWeatherTap;
+    private Runnable onTimeTap, onDateTap, onWeatherTap, onNoWeatherApp;
 
     public ClockWidget(Context context) {
         super(context);
@@ -73,9 +73,7 @@ public final class ClockWidget extends FrameLayout {
 
         timeView.setOnClickListener(v -> tap(onTimeTap, this::openClock));
         dateView.setOnClickListener(v -> tap(onDateTap, this::openCalendar));
-        weatherView.setOnClickListener(v -> {
-            if (onWeatherTap != null) onWeatherTap.run();
-        });
+        weatherView.setOnClickListener(v -> tap(onWeatherTap, this::openWeather));
     }
 
     /** Clock apps that ship without declaring ACTION_SHOW_ALARMS, in rough
@@ -103,10 +101,33 @@ public final class ClockWidget extends FrameLayout {
             "com.samsung.android.calendar",
     };
 
+    /** Android has no weather intent or category, so the weather region can
+     *  only go by package name (DESIGN_NOTES §9 row 8). */
+    private static final String[] WEATHER_PACKAGES = {
+            "com.google.android.apps.weather",
+            "com.sec.android.daemonapp",
+            "com.samsung.android.weather",
+            "com.miui.weather2",
+            "com.huawei.android.totemweather",
+            "com.coloros.weather2",
+            "com.oneplus.weather",
+            "com.weather.Weather",
+            "com.accuweather.android",
+    };
+
     private void openClock() {
         Launch.first(getContext(),
                 new Intent(AlarmClock.ACTION_SHOW_ALARMS),
                 Launch.packageLauncher(getContext(), CLOCK_PACKAGES));
+    }
+
+    /** DESIGN_NOTES §9 row 8: open a weather app if one is installed. Where
+     *  row 8 said "no-op if none found", the launcher now has a reading of its
+     *  own to refresh instead — see {@link #setOnNoWeatherApp}. */
+    private void openWeather() {
+        boolean opened = Launch.first(getContext(),
+                Launch.packageLauncher(getContext(), WEATHER_PACKAGES));
+        if (!opened && onNoWeatherApp != null) onNoWeatherApp.run();
     }
 
     private void openCalendar() {
@@ -132,6 +153,10 @@ public final class ClockWidget extends FrameLayout {
     public void setOnTimeTap(Runnable r) { this.onTimeTap = r; }
     public void setOnDateTap(Runnable r) { this.onDateTap = r; }
     public void setOnWeatherTap(Runnable r) { this.onWeatherTap = r; }
+
+    /** Runs when the weather region was tapped and no weather app is
+     *  installed to open. */
+    public void setOnNoWeatherApp(Runnable r) { this.onNoWeatherApp = r; }
 
     public void setPalette(Palette p) {
         background.setColor(p.veil());

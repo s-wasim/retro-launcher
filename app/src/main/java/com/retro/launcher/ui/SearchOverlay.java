@@ -67,8 +67,10 @@ public final class SearchOverlay extends FrameLayout {
         this.apps = apps;
 
         setVisibility(GONE);
-        setClickable(true);   // swallow taps aimed at whatever is underneath
         LauncherRoot.setNoSwipe(this);
+        // Clickable so taps never reach the panel underneath, and a tap on the
+        // empty backdrop dismisses — the same way the double tap opened it.
+        setOnClickListener(v -> close());
 
         columnPad = Math.round(metrics.cqw(6f));
 
