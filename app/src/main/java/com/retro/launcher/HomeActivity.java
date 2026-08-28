@@ -22,10 +22,12 @@ import android.widget.FrameLayout;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
+import com.retro.launcher.core.UsageMath;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.AppEntry;
 import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
+import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.data.WeatherRepository;
 import com.retro.launcher.icons.GeneratedTileIcons;
 import com.retro.launcher.icons.IconCache;
@@ -36,9 +38,12 @@ import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
 import com.retro.launcher.ui.DockView;
 import com.retro.launcher.ui.DrawerPanel;
+import com.retro.launcher.ui.HintOverlay;
 import com.retro.launcher.ui.HomePanel;
 import com.retro.launcher.ui.LauncherRoot;
+import com.retro.launcher.ui.ScreenTimePanel;
 import com.retro.launcher.ui.SettingsPanel;
+import com.retro.launcher.ui.SetupScreen;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -57,11 +62,15 @@ public class HomeActivity extends Activity {
     private HomePanel home;
     private DrawerPanel drawer;
     private SettingsPanel settings;
+    private ScreenTimePanel screenTime;
     private BottomSheet sheet;
+    private SetupScreen setupScreen;
+    private HintOverlay hintOverlay;
     private AppRepository appRepository;
     private Prefs prefs;
     private Metrics metrics;
     private WeatherRepository weatherRepository;
+    private UsageRepository usageRepository;
     private Palette palette;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
@@ -85,6 +94,7 @@ public class HomeActivity extends Activity {
 
         prefs = new Prefs(this);
         weatherRepository = new WeatherRepository();
+        usageRepository = new UsageRepository(this);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
@@ -121,27 +131,36 @@ public class HomeActivity extends Activity {
             @Override public void onRequestLocation() {
                 requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
             }
-            @Override public void onOpenUsageAccessSettings() {
-                try {
-                    startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
-                } catch (ActivityNotFoundException ignored) {
-                    // No Settings app to resolve it — nothing else we can do.
-                }
-            }
+            @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
         });
+
+        screenTime = new ScreenTimePanel(this, metrics, prefs);
+        screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
+        screenTime.setOnLimitChangedListener(this::refreshUsage);
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
         });
 
-        root.setPanels(home, settings, drawer, blank(0xFF404040));
+        root.setPanels(home, settings, drawer, screenTime);
         root.setDoubleTapListener(() -> Log.d("HomeActivity", "double-tap search stub — real overlay lands in Tier 5"));
+
+        setupScreen = new SetupScreen(this, metrics);
+        setupScreen.setListener(new SetupScreen.Listener() {
+            @Override public void onGrantUsageAccess() { openUsageAccessSettings(); }
+            @Override public void onContinue() { showHint(); }
+        });
+
+        hintOverlay = new HintOverlay(this, metrics);
+        hintOverlay.setOnDismissListener(this::dismissFirstRun);
 
         FrameLayout stack = new FrameLayout(this);
         stack.addView(sky);   // z=0, behind everything, never moves
         stack.addView(root);
         stack.addView(sheet); // overlay, above every panel
+        stack.addView(setupScreen);
+        stack.addView(hintOverlay);
         setContentView(stack);
 
         refreshPalette();
@@ -149,8 +168,30 @@ public class HomeActivity extends Activity {
         drawer.refresh();
         settings.setDockEntries(home.dock.entries());
         refreshPermissionStatus();
+        refreshUsage();
+
+        hintOverlay.setVisibility(View.GONE);
+        setupScreen.setVisibility(prefs.hintShown() ? View.GONE : View.VISIBLE);
 
         registerReceiver(packageReceiver, packageChangeFilter());
+    }
+
+    private void openUsageAccessSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        } catch (ActivityNotFoundException ignored) {
+            // No Settings app to resolve it — nothing else we can do.
+        }
+    }
+
+    private void showHint() {
+        setupScreen.setVisibility(View.GONE);
+        hintOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private void dismissFirstRun() {
+        hintOverlay.setVisibility(View.GONE);
+        prefs.putBool(Prefs.K_HINT, true);
     }
 
     private static IntentFilter packageChangeFilter() {
@@ -198,12 +239,6 @@ public class HomeActivity extends Activity {
         }
     }
 
-    private View blank(int color) {
-        View v = new View(this);
-        v.setBackgroundColor(color);
-        return v;
-    }
-
     private void goEdgeToEdge() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -233,6 +268,7 @@ public class HomeActivity extends Activity {
             home.setPalette(palette);
             drawer.setPalette(palette);
             settings.setPalette(palette);
+            screenTime.setPalette(palette);
         }
     }
 
@@ -258,7 +294,26 @@ public class HomeActivity extends Activity {
     }
 
     private void refreshPermissionStatus() {
-        settings.setPermissionStatus(hasLocationPermission(), hasUsageAccess());
+        boolean usageGranted = hasUsageAccess();
+        settings.setPermissionStatus(hasLocationPermission(), usageGranted);
+        setupScreen.setGranted(usageGranted);
+    }
+
+    /** Pulls fresh device usage data and drives the panel, the over-limit
+     *  wallpaper desaturation, and the clock widget's marker from it. */
+    private void refreshUsage() {
+        long now = System.currentTimeMillis();
+        long today = usageRepository.todayMillis(now);
+        long[] last7 = usageRepository.last7DaysMillis(now);
+        int pickups = usageRepository.pickupsToday(now);
+        List<UsageRepository.AppUsage> mostUsed = usageRepository.mostUsedToday(now, 6);
+        screenTime.setUsage(today, last7, pickups, mostUsed);
+
+        int limit = prefs.limit();
+        boolean over = UsageMath.isOverLimit(today, limit);
+        float overage = UsageMath.usageFraction(today, limit) - 1f;
+        sky.setDesaturation(Math.max(0f, Math.min(1f, overage)));
+        home.clock.setOverLimit(over);
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
@@ -272,6 +327,7 @@ public class HomeActivity extends Activity {
         sky.resume();
         drawer.refresh();
         refreshPermissionStatus();
+        refreshUsage();
     }
 
     @Override protected void onPause() {

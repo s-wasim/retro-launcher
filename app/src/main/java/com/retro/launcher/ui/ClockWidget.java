@@ -35,7 +35,9 @@ public final class ClockWidget extends FrameLayout {
     private final TextView dateView;
     private final TextView weatherView;
     private final android.view.View weatherDot;
+    private final android.view.View overLimitMarker;
     private final GradientDrawable background = new GradientDrawable();
+    private final GradientDrawable overLimitBg = new GradientDrawable();
 
     private final Prefs prefs;
     private Calendar lastTime;
@@ -54,6 +56,17 @@ public final class ClockWidget extends FrameLayout {
 
         background.setShape(GradientDrawable.RECTANGLE);
         setBackground(background);
+
+        // Persistent over-limit marker (§9 delta 10) — a corner dot, no
+        // notification permission needed. Hidden until setOverLimit(true).
+        overLimitMarker = new android.view.View(context);
+        overLimitBg.setShape(GradientDrawable.OVAL);
+        overLimitMarker.setBackground(overLimitBg);
+        overLimitMarker.setVisibility(GONE);
+        int dot = (int) (8 * getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams markerLp = new FrameLayout.LayoutParams(dot, dot);
+        markerLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        addView(overLimitMarker, markerLp);
 
         LauncherRoot.setNoSwipe(this);
 
@@ -89,6 +102,12 @@ public final class ClockWidget extends FrameLayout {
         Tint.setRole(weatherView, Tint.ROLE_INK);
         Tint.apply(this, p);
         weatherDot.setBackgroundColor(p.a);
+        overLimitBg.setColor(p.a);
+    }
+
+    /** Persistent over-limit marker — no notification permission needed. */
+    public void setOverLimit(boolean over) {
+        overLimitMarker.setVisibility(over ? VISIBLE : GONE);
     }
 
     public void setTime(Calendar c) {
@@ -133,9 +152,10 @@ public final class ClockWidget extends FrameLayout {
         try {
             fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(fallback);
-        } catch (ActivityNotFoundException ignored) {
-            // No clock/calendar app installed — a missing intent target must
-            // never crash the home screen. See spec §6.
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            // No clock/calendar app installed, or the device refuses the
+            // intent (e.g. a restricted/managed profile) — either way a tap
+            // here must never crash the home screen. See spec §6.
         }
     }
 }
