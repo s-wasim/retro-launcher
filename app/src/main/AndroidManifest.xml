@@ -9,6 +9,20 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- The clock widget's tap regions and the search overlay's web row.
+             Declaring them keeps resolveActivity() and getLaunchIntentForPackage()
+             honest on API 30+, so the fallback chains in Launch can tell "no such
+             app" apart from "the app is hidden from us". -->
+        <intent>
+            <action android:name="android.intent.action.SHOW_ALARMS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CALENDAR" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.WEB_SEARCH" />
+        </intent>
     </queries>
 
     <!-- Exactly three, per HANDOFF.md §0 row 1. Do not add a fourth. -->

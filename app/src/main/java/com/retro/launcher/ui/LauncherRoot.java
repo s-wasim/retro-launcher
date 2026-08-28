@@ -1,11 +1,11 @@
 package com.retro.launcher.ui;
 
 import android.content.Context;
-import android.graphics.Rect;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewPropertyAnimator;
 import android.view.animation.PathInterpolator;
 
 import com.retro.launcher.util.Insets;
@@ -20,6 +20,19 @@ import com.retro.launcher.util.Insets;
  *   - panels track 1:1 while dragging, then settle over 260ms
  *   - a gesture starting inside the system gesture inset is left to Android
  *   - a gesture starting over a no-swipe subtree is left to that subtree
+ *
+ * Animation discipline (each rule exists because breaking it is visible):
+ *   1. Exactly one writer owns a panel's translation at a time. A running
+ *      settle animator owns it; onLayout and drag() must yield to it or cancel
+ *      it, never write underneath it.
+ *   2. Only panels that actually move are animated at all.
+ *   3. A panel is VISIBLE only while on-screen or moving. Off-screen panels
+ *      are opaque and full-screen; leaving them VISIBLE is pure waste.
+ *   4. No hardware layers. A translation-only animation over an unchanging
+ *      subtree is a transform on an already-recorded display list — the
+ *      RenderThread composites it for free. withLayer() cannot make that
+ *      cheaper, and it costs a full-screen offscreen texture allocated on the
+ *      first frame of every slide, which is what made panels blink.
  */
 public final class LauncherRoot extends ViewGroup {
 
@@ -35,6 +48,10 @@ public final class LauncherRoot extends ViewGroup {
     private static final long  SETTLE_MS   = 260L;
 
     private View home, settings, drawer, time;
+
+    /** Non-null while that panel's settle animator owns its translation.
+     *  Indexed by VIEW_*; the home slot stays null, home never moves. */
+    private final ViewPropertyAnimator[] running = new ViewPropertyAnimator[4];
 
     private int view = VIEW_HOME;
     private float downX, downY;
@@ -90,12 +107,26 @@ public final class LauncherRoot extends ViewGroup {
         applyRest(w, h);
     }
 
-    /** Snap every panel to its resting offset for the current view. */
+    /**
+     * Snap every panel that no animator owns to its resting offset.
+     *
+     * onLayout fires whenever any descendant calls requestLayout — a minute
+     * tick relabelling the clock, an inset dispatch, a palette rebuild. Those
+     * happen freely mid-slide, so this must leave an animating panel alone;
+     * writing the resting offset underneath a running animator teleports the
+     * panel to its destination while the slide is still playing out.
+     */
     private void applyRest(int w, int h) {
         if (home == null) return;
-        settings.setTranslationX(view == VIEW_SETTINGS ? 0 : -w);
-        drawer.setTranslationX(view == VIEW_DRAWER ? 0 : w);
-        time.setTranslationY(view == VIEW_TIME ? 0 : h);
+        if (running[VIEW_SETTINGS] == null) rest(settings, view == VIEW_SETTINGS, -w, 0);
+        if (running[VIEW_DRAWER]   == null) rest(drawer,   view == VIEW_DRAWER,    w, 0);
+        if (running[VIEW_TIME]     == null) rest(time,     view == VIEW_TIME,      0, h);
+    }
+
+    private static void rest(View v, boolean shown, float offX, float offY) {
+        v.setTranslationX(shown ? 0 : offX);
+        v.setTranslationY(shown ? 0 : offY);
+        v.setVisibility(shown ? VISIBLE : INVISIBLE);
     }
 
     @Override public boolean onInterceptTouchEvent(MotionEvent e) {
@@ -103,7 +134,7 @@ public final class LauncherRoot extends ViewGroup {
             case MotionEvent.ACTION_DOWN:
                 downX = e.getX(); downY = e.getY();
                 axis = 0; tracking = false;
-                if (inGestureInset(downX) || overNoSwipe((int) downX, (int) downY)) {
+                if (inGestureInset(downX) || overNoSwipe(downX, downY)) {
                     axis = -1;   // this gesture is not ours
                 }
                 return false;
@@ -150,17 +181,41 @@ public final class LauncherRoot extends ViewGroup {
     private void drag(float dx, float dy, int w, int h) {
         if (axis == 1) {
             if (view == VIEW_HOME) {
+                seize(VIEW_SETTINGS, settings);
+                seize(VIEW_DRAWER, drawer);
                 settings.setTranslationX(clamp(dx, 0, w) - w);
                 drawer.setTranslationX(w + clamp(dx, -w, 0));
             } else if (view == VIEW_SETTINGS) {
+                seize(VIEW_SETTINGS, settings);
                 settings.setTranslationX(clamp(dx, -w, 0));
             } else if (view == VIEW_DRAWER) {
+                seize(VIEW_DRAWER, drawer);
                 drawer.setTranslationX(clamp(dx, 0, w));
             }
         } else if (axis == 2) {
-            if (view == VIEW_HOME)      time.setTranslationY(h + clamp(dy, -h, 0));
-            else if (view == VIEW_TIME) time.setTranslationY(clamp(dy, 0, h));
+            if (view == VIEW_HOME) {
+                seize(VIEW_TIME, time);
+                time.setTranslationY(h + clamp(dy, -h, 0));
+            } else if (view == VIEW_TIME) {
+                seize(VIEW_TIME, time);
+                time.setTranslationY(clamp(dy, 0, h));
+            }
         }
+    }
+
+    /**
+     * Take a panel's translation away from whatever settle animator still owns
+     * it, and make it visible so there is something to drag. Without this a
+     * flick started during the previous flick's settle has two writers, and
+     * the panel judders between the finger and the animator.
+     */
+    private void seize(int slot, View panel) {
+        ViewPropertyAnimator a = running[slot];
+        if (a != null) {
+            running[slot] = null;
+            a.cancel();
+        }
+        if (panel.getVisibility() != VISIBLE) panel.setVisibility(VISIBLE);
     }
 
     private void release(float dx, float dy, int w, int h) {
@@ -181,18 +236,51 @@ public final class LauncherRoot extends ViewGroup {
     }
 
     public void goTo(int next) {
-        int w = getWidth(), h = getHeight();
         this.view = next;
-        // withLayer() caches each panel as a hardware bitmap for the
-        // duration of the slide instead of re-rasterising the whole subtree
-        // every frame — without it, panels with lots of text/content visibly
-        // smear into place instead of snapping cleanly.
-        settings.animate().translationX(next == VIEW_SETTINGS ? 0 : -w)
-                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
-        drawer.animate().translationX(next == VIEW_DRAWER ? 0 : w)
-                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
-        time.animate().translationY(next == VIEW_TIME ? 0 : h)
-                .setDuration(SETTLE_MS).setInterpolator(settle).withLayer().start();
+        int w = getWidth(), h = getHeight();
+        if (w == 0 || h == 0) return;   // pre-layout; onLayout will snap us
+
+        slide(VIEW_SETTINGS, settings, next == VIEW_SETTINGS ? 0 : -w, 0,
+                next == VIEW_SETTINGS);
+        slide(VIEW_DRAWER, drawer, next == VIEW_DRAWER ? 0 : w, 0,
+                next == VIEW_DRAWER);
+        slide(VIEW_TIME, time, 0, next == VIEW_TIME ? 0 : h,
+                next == VIEW_TIME);
+    }
+
+    /**
+     * Move one panel to its target, or settle its visibility and return if it
+     * is already there. Skipping the no-op case matters: goTo touches all
+     * three panels but at most two of them ever move, and starting an animator
+     * on a full-screen panel that is not going anywhere costs a frame's work
+     * and an invalidate for nothing.
+     */
+    private void slide(int slot, View panel, float tx, float ty, boolean shown) {
+        ViewPropertyAnimator prev = running[slot];
+        if (prev != null) {
+            running[slot] = null;
+            prev.cancel();
+        }
+
+        if (panel.getTranslationX() == tx && panel.getTranslationY() == ty) {
+            panel.setVisibility(shown ? VISIBLE : INVISIBLE);
+            return;
+        }
+
+        // Visible for the whole slide; hidden again only once it has left.
+        // withEndAction does not run on cancel, so an interrupted slide never
+        // hides a panel the user is dragging back in.
+        panel.setVisibility(VISIBLE);
+        ViewPropertyAnimator a = panel.animate()
+                .translationX(tx).translationY(ty)
+                .setDuration(SETTLE_MS)
+                .setInterpolator(settle)
+                .withEndAction(() -> {
+                    running[slot] = null;
+                    if (!shown) panel.setVisibility(INVISIBLE);
+                });
+        running[slot] = a;
+        a.start();
     }
 
     private boolean inGestureInset(float x) {
@@ -200,22 +288,31 @@ public final class LauncherRoot extends ViewGroup {
         return x < g[0] || x > getWidth() - g[1];
     }
 
-    private boolean overNoSwipe(int x, int y) {
+    private boolean overNoSwipe(float x, float y) {
         return hitsNoSwipe(this, x, y);
     }
 
-    private static boolean hitsNoSwipe(View v, int x, int y) {
+    /**
+     * True if (x, y) — in {@code v}'s own coordinate space — lands on a subtree
+     * tagged no-swipe.
+     *
+     * Coordinates are converted the same way {@code dispatchTouchEvent} does
+     * it: add the parent's scroll, then subtract the child's layout position
+     * and its translation. The scroll term is what matters here — the drawer's
+     * app list is a scrolling container, so testing without it checked the
+     * wrong rows the moment the list moved.
+     */
+    private static boolean hitsNoSwipe(View v, float x, float y) {
         if (Boolean.TRUE.equals(v.getTag(NO_SWIPE_TAG))) return true;
         if (!(v instanceof ViewGroup)) return false;
         ViewGroup g = (ViewGroup) v;
-        Rect r = new Rect();
         for (int i = g.getChildCount() - 1; i >= 0; i--) {
             View c = g.getChildAt(i);
             if (c.getVisibility() != VISIBLE) continue;
-            c.getHitRect(r);
-            int tx = (int) c.getTranslationX(), ty = (int) c.getTranslationY();
-            r.offset(tx - c.getLeft() + c.getLeft(), ty - c.getTop() + c.getTop());
-            if (r.contains(x, y) && hitsNoSwipe(c, x - r.left, y - r.top)) return true;
+            float cx = x + g.getScrollX() - c.getLeft() - c.getTranslationX();
+            float cy = y + g.getScrollY() - c.getTop() - c.getTranslationY();
+            if (cx < 0 || cx >= c.getWidth() || cy < 0 || cy >= c.getHeight()) continue;
+            if (hitsNoSwipe(c, cx, cy)) return true;
         }
         return false;
     }
