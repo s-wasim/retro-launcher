@@ -49,14 +49,16 @@ public class SkyRendererTest {
     @Test public void quantizationSnapsToFifteenLevelSteps() {
         // The prototype rounds each channel to multiples of 15 before dither —
         // but only the base gradient; sun/moon/star/cloud layers paint over it
-        // unquantized, exactly as the prototype's frame() does. Sample pixels
-        // away from both bodies so the invariant is checked where it applies.
-        int[] buf = renderAt(3f, 0f);
-        int sx = Math.round(sunX(3f)), sy = Math.round(sunY(3f, H));
-        int mx = Math.round(moonX(3f)), my = Math.round(moonY(3f, H));
+        // unquantized, exactly as the prototype's frame() does. Hour 12 has no
+        // stars (daytime) and weather 0 has no clouds or rain, so sampling away
+        // from the sun and moon discs isolates pixels the invariant covers.
+        int[] buf = renderAt(12f, 0f);
+        int sx = Math.round(sunX(12f)), sy = Math.round(sunY(12f, H));
+        int mx = Math.round(moonX(12f)), my = Math.round(moonY(12f, H));
         for (int y = 0; y < H; y++) {
             for (int x = 0; x < W; x++) {
-                if (Math.hypot(x - sx, y - sy) < 20) continue;
+                // Sun rays extend up to R+3+rayLen (~20px) beyond the disc centre.
+                if (Math.hypot(x - sx, y - sy) < 25) continue;
                 if (Math.hypot(x - mx, y - my) < 20) continue;
                 int px = buf[y * W + x];
                 for (int shift : new int[]{16, 8, 0}) {
@@ -155,6 +157,129 @@ public class SkyRendererTest {
 
     @Test public void renderStaysDeterministicWithDiscsAdded() {
         assertArrayEquals(renderAt(9.5f, 0.4f), renderAt(9.5f, 0.4f));
+    }
+
+    private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+    private static int countNear(int[] buf, float r, float g, float b, float tolerance) {
+        int n = 0;
+        for (int argb : buf) {
+            float dr = ((argb >> 16) & 0xFF) - r, dg = ((argb >> 8) & 0xFF) - g, db = (argb & 0xFF) - b;
+            if (Math.sqrt(dr * dr + dg * dg + db * db) < tolerance) n++;
+        }
+        return n;
+    }
+
+    @Test public void starsOnlyAppearAtNight() {
+        int[] night = renderAt(0f, 0f);
+        int[] noon  = renderAt(12f, 0f);
+        // Stars are near-white single pixels; count bright near-white pixels
+        // away from the sun/moon discs at each hour.
+        int sxN = Math.round(sunX(0f)), syN = Math.round(sunY(0f, H));
+        int mxN = Math.round(moonX(0f)), myN = Math.round(moonY(0f, H));
+        int starPixels = 0;
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+            if (Math.hypot(x - sxN, y - syN) < 25 || Math.hypot(x - mxN, y - myN) < 20) continue;
+            int argb = night[y * W + x];
+            int r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+            if (r > 230 && g > 230 && b > 230) starPixels++;
+        }
+        assertTrue(starPixels > 0);
+
+        int sxD = Math.round(sunX(12f)), syD = Math.round(sunY(12f, H));
+        int mxD = Math.round(moonX(12f)), myD = Math.round(moonY(12f, H));
+        int dayBrightPixels = 0;
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+            if (Math.hypot(x - sxD, y - syD) < 25 || Math.hypot(x - mxD, y - myD) < 20) continue;
+            int argb = noon[y * W + x];
+            int r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+            if (r > 230 && g > 230 && b > 230) dayBrightPixels++;
+        }
+        assertEquals(0, dayBrightPixels);
+    }
+
+    /** Noon ambient = mix(top, bot, 0.5) from the SKY table, storm-darkened for
+     *  the given weather — mirrors SkyRenderer's own `dark` / ambient math. */
+    private static float[] ambientAtNoon(float weather) {
+        float storm = SkyRenderer.smooth(0.55f, 1.00f, weather);
+        float dark = 1f - 0.42f * storm;
+        float topR = 54 * dark, topG = 130 * dark, topB = 228 * dark;
+        float botR = 156 * dark, botG = 208 * dark, botB = 247 * dark;
+        return new float[]{ (topR + botR) / 2f, (topG + botG) / 2f, (topB + botB) / 2f };
+    }
+
+    @Test public void cloudCoverIncreasesWithWeather() {
+        // Cloud shading is a lightened/darkened blend of the (storm-adjusted)
+        // ambient sky tone — DESIGN_NOTES §2b clouds layer. Reproduce the three
+        // exact bands per weather and count matches as a proxy for cover extent.
+        int low  = cloudPixels(renderAt(12f, 0.15f), 0.15f);
+        int mid  = cloudPixels(renderAt(12f, 0.45f), 0.45f);
+        int high = cloudPixels(renderAt(12f, 0.65f), 0.65f);
+        assertTrue(low < mid);
+        assertTrue(mid < high);
+    }
+
+    private static int cloudPixels(int[] buf, float weather) {
+        float[] amb = ambientAtNoon(weather);
+        float storm = SkyRenderer.smooth(0.55f, 1.00f, weather);
+        // Noon has |sunAlt| = 1, so twilight = smooth(0.45, 0.02, 1) = 0 always;
+        // only the storm mix (cBase toward [58,62,80]) applies at noon.
+        float baseR = lerp(252, amb[0], 0.52f), baseG = lerp(253, amb[1], 0.52f), baseB = lerp(255, amb[2], 0.52f);
+        baseR = lerp(baseR, 58, storm * 0.82f); baseG = lerp(baseG, 62, storm * 0.82f); baseB = lerp(baseB, 80, storm * 0.82f);
+        float hiR = baseR * 1.14f, hiG = baseG * 1.14f, hiB = baseB * 1.14f;
+        float midR = baseR * 0.94f, midG = baseG * 0.94f, midB = baseB * 0.94f;
+        float loR = baseR * 0.72f, loG = baseG * 0.72f, loB = baseB * 0.72f;
+        return countNear(buf, hiR, hiG, hiB, 8) + countNear(buf, midR, midG, midB, 8) + countNear(buf, loR, loG, loB, 8);
+    }
+
+    @Test public void rainOnlyFallsAboveThePrecipThreshold() {
+        // precip = smooth(0.62, 0.98, weather) is 0 at weather 0.5, so any
+        // frame-to-frame change there comes only from cloud drift; above the
+        // floor, 260 moving rain streaks dwarf that. Compare frame-to-frame
+        // pixel churn rather than matching an exact (background-adjacent)
+        // rain colour, which the retro palette makes too fragile to pin down.
+        int churnDry = frameChurn(12f, 0.5f);
+        int churnWet = frameChurn(12f, 0.95f);
+        assertTrue(churnWet > churnDry * 2);
+    }
+
+    private static int frameChurn(float hour, float weather) {
+        SkyRenderer r1 = new SkyRenderer(W, H);
+        SkyRenderer r2 = new SkyRenderer(W, H);
+        int[] b1 = new int[W * H], b2 = new int[W * H];
+        r1.render(b1, hour, weather, 0.62f, 0f);
+        r2.render(b2, hour, weather, 0.62f, 3f);
+        int n = 0;
+        for (int i = 0; i < b1.length; i++) if (b1[i] != b2[i]) n++;
+        return n;
+    }
+
+    @Test public void sameSeedGivesTheSameFrame() {
+        SkyRenderer a = new SkyRenderer(W, H, 99L);
+        SkyRenderer b = new SkyRenderer(W, H, 99L);
+        int[] bufA = new int[W * H], bufB = new int[W * H];
+        a.render(bufA, 9f, 0.3f, 0.5f, 2f);
+        b.render(bufB, 9f, 0.3f, 0.5f, 2f);
+        assertArrayEquals(bufA, bufB);
+    }
+
+    @Test public void differentSeedsGiveDifferentClouds() {
+        SkyRenderer a = new SkyRenderer(W, H, 1L);
+        SkyRenderer b = new SkyRenderer(W, H, 2L);
+        int[] bufA = new int[W * H], bufB = new int[W * H];
+        a.render(bufA, 12f, 0.5f, 0.5f, 0f);
+        b.render(bufB, 12f, 0.5f, 0.5f, 0f);
+        assertFalse(java.util.Arrays.equals(bufA, bufB));
+    }
+
+    @Test public void renderNeverThrowsAcrossTheWholeDay() {
+        SkyRenderer r = new SkyRenderer(W, H);
+        int[] buf = new int[W * H];
+        for (float hour = 0f; hour <= 24f; hour += 0.5f) {
+            for (float weather = 0f; weather <= 1f; weather += 0.25f) {
+                r.render(buf, hour, weather, 0.5f, hour * 10f);
+            }
+        }
     }
 
     private static float luma(int argb) {
