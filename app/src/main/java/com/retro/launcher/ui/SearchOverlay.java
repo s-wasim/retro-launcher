@@ -126,8 +126,12 @@ public final class SearchOverlay extends FrameLayout {
 
     @Override public android.view.WindowInsets onApplyWindowInsets(android.view.WindowInsets insets) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            android.graphics.Insets sys =
-                    insets.getInsets(android.view.WindowInsets.Type.systemBars());
+            // The IME is in here too: this is the one screen with a keyboard,
+            // and the window is laid out fullscreen, so without it the results
+            // list runs on underneath the keys.
+            android.graphics.Insets sys = insets.getInsets(
+                    android.view.WindowInsets.Type.systemBars()
+                            | android.view.WindowInsets.Type.ime());
             column.setPadding(columnPad + sys.left, columnPad + sys.top,
                     columnPad + sys.right, columnPad + sys.bottom);
         }
