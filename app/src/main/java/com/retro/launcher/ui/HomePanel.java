@@ -10,6 +10,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.DefaultDock;
 import com.retro.launcher.data.Prefs;
+import com.retro.launcher.icons.IconSource;
 
 import java.util.Calendar;
 import java.util.List;
@@ -27,13 +28,13 @@ public final class HomePanel extends FrameLayout {
     private final Metrics metrics;
     private final int baseOffset;
 
-    public HomePanel(Context context, Metrics metrics, Prefs prefs) {
+    public HomePanel(Context context, Metrics metrics, Prefs prefs, IconSource icons) {
         super(context);
         this.metrics = metrics;
         this.baseOffset = Math.round(metrics.cqw(4f));
 
         clock = new ClockWidget(context);
-        dock = new DockView(context, metrics);
+        dock = new DockView(context, metrics, icons);
 
         addView(clock, topRightParams());
         addView(dock, bottomLeftParams());

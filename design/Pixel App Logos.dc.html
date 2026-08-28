@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; }
+  a { color: inherit; }
+  a:hover { color: inherit; }
+</style>
+</helmet>
+<div style="{{ pageStyle }}">
+  <div style="max-width: 1180px; margin: 0 auto; padding: 56px 40px 80px">
+
+    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-end; justify-content: space-between; margin-bottom: 14px">
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div style="font-family: 'Press Start 2P', monospace; font-size: 22px; line-height: 1.5; letter-spacing: 1px">PIXEL APP LOGOS</div>
+        <div style="font-family: 'Press Start 2P', monospace; font-size: 8px; line-height: 2.2; opacity: 0.7">51 MARKS &middot; 16x16 GRID &middot; 6 COLORS &middot; CLICK ANY TILE TO COPY SVG</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+        <div style="font-family: 'Press Start 2P', monospace; font-size: 7px; opacity: 0.55; letter-spacing: 1px">PALETTE</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <sc-for list="{{ palButtons }}" as="btn" hint-placeholder-count="3">
+            <button onClick="{{ btn.onClick }}" style="{{ btn.style }}">{{ btn.label }}</button>
+          </sc-for>
+        </div>
+        <div style="font-family: 'Press Start 2P', monospace; font-size: 7px; opacity: 0.55; letter-spacing: 1px; margin-top: 6px">THEME</div>
+        <div style="display: flex; gap: 8px">
+          <sc-for list="{{ themeButtons }}" as="btn" hint-placeholder-count="2">
+            <button onClick="{{ btn.onClick }}" style="{{ btn.style }}">{{ btn.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="{{ swatchRowStyle }}">
+      <sc-for list="{{ palRows }}" as="row" hint-placeholder-count="3">
+        <div style="{{ row.rowStyle }}">
+          <div style="{{ row.nameStyle }}">{{ row.name }}</div>
+          <div style="display: grid; grid-template-columns: repeat(6, minmax(84px, 1fr)); gap: 10px; flex: 1">
+            <sc-for list="{{ row.swatches }}" as="sw" hint-placeholder-count="6">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <div style="{{ sw.chipStyle }}"></div>
+                <div style="display: flex; flex-direction: column; gap: 4px">
+                  <div style="font-family: 'Press Start 2P', monospace; font-size: 6px; letter-spacing: 0.5px; opacity: 0.6">{{ sw.label }}</div>
+                  <div style="font-family: 'Press Start 2P', monospace; font-size: 7px; letter-spacing: 0.5px">{{ sw.hex }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-for list="{{ groups }}" as="group" hint-placeholder-count="5">
+      <div style="margin-top: 46px">
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 22px">
+          <div style="font-family: 'Press Start 2P', monospace; font-size: 10px; letter-spacing: 2px">{{ group.title }}</div>
+          <div style="{{ ruleStyle }}"></div>
+          <div style="font-family: 'Press Start 2P', monospace; font-size: 7px; opacity: 0.5">{{ group.count }}</div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 26px 18px">
+          <sc-for list="{{ group.icons }}" as="icon" hint-placeholder-count="8">
+            <div onClick="{{ icon.onCopy }}" title="Click to copy SVG" style="display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer">
+              <div style="{{ icon.frameStyle }}">{{ icon.svg }}</div>
+              <div style="{{ icon.labelStyle }}">{{ icon.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+
+  </div>
+  <div style="{{ toastStyle }}">{{ toastText }}</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gb&quot;,&quot;amber&quot;,&quot;c64&quot;],&quot;default&quot;:&quot;gb&quot;,&quot;tsType&quot;:&quot;'gb' | 'amber' | 'c64'&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light' | 'dark'&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;iconSize&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:56,&quot;max&quot;:144,&quot;step&quot;:8,&quot;default&quot;:88,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;showLabels&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;}}">
+const PALETTES = [
+  { id: 'gb', label: 'GAME BOY',
+    light: { bg:'#dcebb4', tile:'#33552a', p:'#a4c93c', a:'#eaf8a8', s:'#1b3311', h:'#f6ffdc', ink:'#1b3311' },
+    dark:  { bg:'#0b1508', tile:'#1d3315', p:'#8bac0f', a:'#cfe89a', s:'#0f2408', h:'#eeffc4', ink:'#a4c93c' } },
+  { id: 'amber', label: 'CRT AMBER',
+    light: { bg:'#f2e5c8', tile:'#3b2612', p:'#e79a20', a:'#ffd873', s:'#7d3f0c', h:'#fff3d2', ink:'#3b2612' },
+    dark:  { bg:'#140c05', tile:'#2b1a0a', p:'#ffb020', a:'#ffd873', s:'#6d3407', h:'#fff0c8', ink:'#e79a20' } },
+  { id: 'c64', label: 'C64 BLUE',
+    light: { bg:'#dadef8', tile:'#3a2f8f', p:'#7c70da', a:'#b9c8ff', s:'#221a5e', h:'#f2f4ff', ink:'#221a5e' },
+    dark:  { bg:'#0b0820', tile:'#221a5e', p:'#7c70da', a:'#b9c8ff', s:'#140f3a', h:'#eef1ff', ink:'#9a90ff' } }
+];
+
+const G = {
+  phone: ['pph.........','phhpp.......','pppppp......','.pppppp.....','..pppppp....','...ppppp....','....ppppp...','.....ppppp..','......pppphp','......pphhpp','.......pppp.','............'],
+  messages: ['..pppppppp..','.pppppppppp.','pppppppppppp','pppppppppppp','ppaapaapaapp','ppaapaapaapp','pppppppppppp','.pppppppppp.','.ssssssssss.','..ppp.......','..pp........','............'],
+  camera: ['...aaa......','.pppppppppp.','pppppppppppp','ppppsssspppp','pppsshhssppp','pppsshhssppp','ppppsssspppp','pppppppppppp','.pppppppppp.','..ssssssss..','............','............'],
+  gallery: ['pppppppppppp','pssssssssssp','pssssssaassp','pssssssaassp','pssssssssssp','psssshhssssp','pssshhhhsssp','pshhhhhhhhsp','phhhhhhhhhhp','pppppppppppp','............','............'],
+  clock: ['....pppp....','..pppppppp..','.pppppppppp.','ppppppappppp','ppppppappppp','ppppppaaappp','pppppppppppp','pppppppppppp','.pppppppppp.','..pppppppp..','....ssss....','............'],
+  calculator: ['pppppppppppp','phhhhhhhhhhp','phhhhhhhhhhp','pppppppppppp','paappaappaap','pppppppppppp','paappaappaap','pppppppppppp','paappaappaap','pppppppppppp','............','............'],
+  calendar: ['..pp....pp..','aaaaaaaaaaaa','aaaaaaaaaaaa','pppppppppppp','phhpphhpphhp','pppppppppppp','phhpphhpphhp','pppppppppppp','phhpphhpphhp','ssssssssssss','............','............'],
+  settings: ['...pp..pp...','...pp..pp...','.pppppppppp.','.pppppppppp.','ppppsssspppp','pppsshhssppp','pppsshhssppp','ppppsssspppp','.pppppppppp.','.pppppppppp.','...pp..pp...','...pp..pp...'],
+  internet: ['....pppp....','..pppphppp..','.ppppphpppp.','hhhhhhhhhhhh','pppppphppppp','pppppphppppp','hhhhhhhhhhhh','.ppppphpppp.','..pppphppp..','....ssss....','............','............'],
+  contacts: ['pppppppppppp','pppphhhhpppp','pppphhhhpppp','pppppppppppp','ppphhhhhhppp','pphhhhhhhhpp','pphhhhhhhhpp','pppppppppppp','paaaaaaaaaap','pppppppppppp','............','............'],
+  notes: ['pppppppppppp','ppppppppppaa','phhhhhhhhhaa','pppppppppppp','phhhhhhhhhhp','pppppppppppp','phhhhhhhhhhp','pppppppppppp','phhhhhhppppp','pppppppppppp','ssssssssssss','............'],
+  weather: ['..a......a..','...aaaaaa...','..aaaaaaaa..','..aaaaaaaa..','...aaaaaa...','....pppp....','..pppppppppp','.pppppppppp.','pppppppppppp','.ssssssssss.','............','............'],
+  health: ['............','.pppp..pppp.','pppppppppppp','pppppaappppp','paaaappaaaap','pppppppppppp','.pppppppppp.','..pppppppp..','...ssssss...','.....ss.....','............','............'],
+  pay: ['............','pppppppppppp','ssssssssssss','ssssssssssss','pppppppppppp','paaapppppppp','paaapppppppp','pppphhhhhhpp','pppppppppppp','............','............','............'],
+  store: ['...pp..pp...','..pp....pp..','pppppppppppp','pppppppppppp','ppppaaaapppp','pppaaaaaappp','ppppaaaapppp','pppppppppppp','pppppppppppp','.ssssssssss.','............','............'],
+  files: ['............','aaaaa.......','pppppppppppp','phhhhhhhhhhp','phhhhhhhhhhp','phhhhhhhhhhp','phhhhhhhhhhp','phhhhhhhhhhp','pppppppppppp','.ssssssssss.','............','............'],
+  email: ['............','aaaaaaaaaaaa','phpppppppphp','pphpppppphpp','ppphpppphppp','pppphhhhpppp','pppppppppppp','pppppppppppp','pppppppppppp','ssssssssssss','............','............'],
+  music: ['......ppppa.','......ppaaa.','......ppaaa.','......pppa..','......pp....','......pp....','......pp....','..pppppp....','.pppppppp...','.pppppppp...','..ssssss....','............'],
+  recorder: ['....pppp....','...pppppp...','...pppppp...','...pppppp...','...pppppp...','..a......a..','..a......a..','..aaaaaaaa..','.....aa.....','...aaaaaa...','............','............'],
+  maps: ['............','pppppppppppp','pppsppsppppp','pppsppsppppp','pppsppspaapp','pppsppspaapp','pppsppsppppp','pppsppsppppp','pppsppsppppp','pppppppppppp','............','............'],
+
+  whatsapp: ['..pppppppp..','.pppppppppp.','pppaappppppp','ppppaapppppp','pppppaappppp','ppppppaapppp','pppppppaappp','.pppppppppp.','.ssssssssss.','..ppp.......','..pp........','............'],
+  snapchat: ['...pppppp...','..pppppppp..','.pppppppppp.','.pphhpphhpp.','.pppppppppp.','.pppppppppp.','.pppaaaappp.','.pppppppppp.','pppppppppppp','pp.pp.pp.pp.','............','............'],
+  instagram: ['..pppppppp..','.pppppppppp.','ppppppppphpp','pppp....pppp','ppp.aaaa.ppp','ppp.aaaa.ppp','ppp.aaaa.ppp','pppp....pppp','pppppppppppp','.pppppppppp.','..ssssssss..','............'],
+  facebook: ['..aaaaaaaa..','..aaaaaaaa..','..ppp.......','..ppp.......','..pppppp....','..pppppp....','..ppp.......','..ppp.......','..ppp.......','..sss.......','............','............'],
+  x: ['.pp......pp.','..pp....pp..','...pp..pp...','....pppp....','.....aa.....','.....aa.....','....pppp....','...pp..pp...','..pp....pp..','.pp......pp.','............','............'],
+  tiktok: ['.....pppppp.','.....pppaaa.','.....pppaaa.','.....ppppaa.','.....ppp....','.....ppp....','.....ppp....','..pppppp....','.apppppp....','.apppppp....','..ssssss....','............'],
+  telegram: ['..........aa','........aapp','......aapppp','....aapppppp','..aappppppp.','aappppppp...','...sshhpp...','....sspp....','.....ss.....','............','............','............'],
+  discord: ['............','..pppppppp..','.pppppppppp.','pppppppppppp','ppaappppaapp','ppaappppaapp','pppppppppppp','.pppppppppp.','..pp....pp..','.ss......ss.','............','............'],
+  reddit: ['.......aa...','.......aa...','..pppppppp..','.pppppppppp.','phhpppppphhp','pppppppppppp','pppaaaaaappp','.pppppppppp.','..ssssssss..','............','............','............'],
+  linkedin: ['............','............','.........aaa','.........aaa','.....ppp.aaa','.....ppp.aaa','.ppp.ppp.aaa','.ppp.ppp.aaa','.ppp.ppp.aaa','.ppp.ppp.aaa','ssssssssssss','............'],
+  pinterest: ['...pppppp...','..pppppppp..','.pppppppppp.','.pphhhhhhpp.','.pphhhhhhpp.','.pppppppppp.','..pppppppp..','...aaaaaa...','.....aa.....','.....aa.....','.....aa.....','............'],
+
+  slack: ['...pp..pp...','...pp..pp...','aaaaaaaaaaaa','aaaaaaaaaaaa','...pp..pp...','...pp..pp...','aaaaaaaaaaaa','aaaaaaaaaaaa','...pp..pp...','...pp..pp...','............','............'],
+  teams: ['............','..ppp..aaa..','..ppp..aaa..','............','.ppppp.aaaaa','.ppppp.aaaaa','.ppppp.aaaaa','.ppppp.aaaaa','.sssss.sssss','............','............','............'],
+  zoom: ['............','ppppppppp...','phhhhhhhp...','phhhhhhhp.aa','phhhhhhhpaaa','phhhhhhhp.aa','phhhhhhhp...','ppppppppp...','sssssssss...','............','............','............'],
+  gmail: ['............','pppppppppppp','pappppppppap','ppapppppappp','pppappppappp','ppppaaaapppp','pppppppppppp','pppppppppppp','pppppppppppp','ssssssssssss','............','............'],
+  drive: ['............','....pppp....','..pppppppp..','.pppppppppp.','pppppaappppp','ppppaaaapppp','pppaaaaaappp','pppppaappppp','pppppaappppp','.ssssssssss.','............','............'],
+  docs: ['............','.pppppppppp.','.pppppppppp.','.paaaaaaaap.','.pppppppppp.','.paaaaaaaap.','.pppppppppp.','.paaaaaaaap.','.pppppppppp.','.paaaappppp.','.pppppppppp.','.ssssssssss.'],
+  notion: ['pppppppppppp','phhhhhhhhhhp','phaahhhhaahp','phaaahhhaahp','phaahaahaahp','phaahhaaaahp','phaahhhhaahp','phhhhhhhhhhp','pppppppppppp','ssssssssssss','............','............'],
+  outlook: ['............','pppppppppppp','paaaappppppp','paapappppppp','paapappppppp','paaaappppppp','pppppppppppp','pppphhhhpppp','pppppppppppp','ssssssssssss','............','............'],
+
+  youtube: ['..pppppppp..','.pppppppppp.','ppppaapppppp','ppppaaaapppp','ppppaaaaaapp','ppppaaaaaapp','ppppaaaapppp','ppppaapppppp','.pppppppppp.','..ssssssss..','............','............'],
+  netflix: ['ppp......ppp','pppa.....ppp','pppaa....ppp','ppp.aa...ppp','ppp..aa..ppp','ppp...aa.ppp','ppp....aappp','ppp.....appp','ppp......ppp','ppp......ppp','sss......sss','............'],
+  spotify: ['....pppp....','..pppppppp..','.pppppppppp.','ppaaaaaaaapp','pppppppppppp','pppaaaaaappp','pppppppppppp','.pppaaaappp.','.pppppppppp.','..pppppppp..','....ssss....','............'],
+  prime: ['............','pppppppppppp','phhhhhhhhhhp','phhhpphhhhhp','phhhppppphhp','phhhppppphhp','phhhpphhhhhp','phhhhhhhhhhp','pppppppppppp','.aaaaaaaaaa.','..aaaaaaaa..','............'],
+  disney: ['.pp..pp..pp.','.pp..pp..pp.','.pppppppppp.','.pppppppppp.','.pppppppppp.','.pppphhpppp.','.pppphhpppp.','.pppphhpppp.','ssssssssssss','.....aa.....','...aaaaaa...','.....aa.....'],
+  twitch: ['pppppppppppp','phhhhhhhhhhp','phhaahhaahhp','phhaahhaahhp','phhaahhaahhp','phhhhhhhhhhp','pppppppppppp','..pppppppp..','..pp........','..ss........','............','............'],
+
+  uber: ['............','...pppppp...','..pppppppp..','.pphhhhhhpp.','.pphhhhhhpp.','pppppppppppp','aappppppppaa','pppppppppppp','.pphhhhhhpp.','.pphhhhhhpp.','..ssssssss..','............'],
+  gmaps: ['...pppppp...','..pppppppp..','.pppppppppp.','.pppaaaappp.','.pppaaaappp.','.pppppppppp.','..pppppppp..','...pppppp...','....pppp....','.....pp.....','....ssss....','............'],
+  chrome: ['....pppp....','..pppppppp..','.pppppppppp.','pppaaaaaappp','ppaaaaaaaapp','ssaaaaaaaass','ppaaaaaaaapp','.pppaaaappp.','.pppssssppp.','..pppppppp..','....pppp....','............'],
+  playstore: ['..pp........','..pppp......','..pppppp....','..pppppppp..','..pppppppppp','..aaaaaaaaaa','..aaaaaaaa..','..aaaaaa....','..aaaa......','..aa........','............','............'],
+  amazon: ['............','pppppppppppp','pppppssppppp','pppppssppppp','pppppssppppp','pppppssppppp','pppppssppppp','pppppssppppp','ssssssssssss','.aaaaaaaaaa.','..aaaaaaaa..','............'],
+  paypal: ['............','..aaaaaaaa..','..aaaaaaaa..','pppppppppppp','pppppppppppp','pppppppppppp','pppppppphhpp','pppppppphhpp','pppppppppppp','ssssssssssss','............','............']
+};
+
+const GROUPS = [
+  { title: 'SAMSUNG STOCK', items: [
+    ['phone','PHONE'],['messages','MESSAGES'],['camera','CAMERA'],['gallery','GALLERY'],['clock','CLOCK'],
+    ['calculator','CALC'],['calendar','CALENDAR'],['settings','SETTINGS'],['internet','INTERNET'],['contacts','CONTACTS'],
+    ['notes','NOTES'],['weather','WEATHER'],['health','HEALTH'],['pay','PAY'],['store','STORE'],
+    ['files','FILES'],['email','EMAIL'],['music','MUSIC'],['recorder','RECORDER'],['maps','MAPS']] },
+  { title: 'SOCIAL', items: [
+    ['whatsapp','WHATSAPP'],['snapchat','SNAPCHAT'],['instagram','INSTAGRAM'],['facebook','FACEBOOK'],['x','X'],
+    ['tiktok','TIKTOK'],['telegram','TELEGRAM'],['discord','DISCORD'],['reddit','REDDIT'],['linkedin','LINKEDIN'],['pinterest','PINTEREST']] },
+  { title: 'WORK', items: [
+    ['slack','SLACK'],['teams','TEAMS'],['zoom','ZOOM'],['gmail','GMAIL'],['drive','DRIVE'],['docs','DOCS'],['notion','NOTION'],['outlook','OUTLOOK']] },
+  { title: 'MEDIA', items: [
+    ['youtube','YOUTUBE'],['netflix','NETFLIX'],['spotify','SPOTIFY'],['prime','PRIME VIDEO'],['disney','DISNEY+'],['twitch','TWITCH']] },
+  { title: 'UTILITY', items: [
+    ['uber','UBER'],['gmaps','MAPS+'],['chrome','CHROME'],['playstore','PLAY'],['amazon','AMAZON'],['paypal','PAYPAL']] }
+];
+
+const TILE_SPAN = [[3,12],[2,13],[1,14],[0,15],[0,15],[0,15],[0,15],[0,15],[0,15],[0,15],[0,15],[0,15],[0,15],[1,14],[2,13],[3,12]];
+
+class Component extends DCLogic {
+  state = { pal: null, theme: null, toast: '' };
+
+  compose(rows) {
+    const grid = [];
+    for (let y = 0; y < 16; y++) grid.push(new Array(16).fill('.'));
+    for (let y = 0; y < 16; y++) {
+      const sp = TILE_SPAN[y];
+      for (let x = sp[0]; x <= sp[1]; x++) grid[y][x] = 't';
+    }
+    for (let gy = 0; gy < 12; gy++) {
+      const row = (rows[gy] || '').padEnd(12, '.');
+      for (let gx = 0; gx < 12; gx++) {
+        const c = row[gx];
+        if (c && c !== '.' && c !== ' ') grid[gy + 2][gx + 2] = c;
+      }
+    }
+    const runs = [];
+    for (let y = 0; y < 16; y++) {
+      let x = 0;
+      while (x < 16) {
+        const c = grid[y][x];
+        if (c === '.') { x++; continue; }
+        let w = 1;
+        while (x + w < 16 && grid[y][x + w] === c) w++;
+        runs.push({ x: x, y: y, w: w, c: c });
+        x += w;
+      }
+    }
+    return runs;
+  }
+
+  svgString(runs, C) {
+    const map = { t: C.tile, p: C.p, a: C.a, s: C.s, h: C.h };
+    let out = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="256" height="256" shape-rendering="crispEdges">';
+    runs.forEach(function (r) {
+      out += '<rect x="' + r.x + '" y="' + r.y + '" width="' + r.w + '" height="1" fill="' + map[r.c] + '"/>';
+    });
+    return out + '</svg>';
+  }
+
+  copy(name, runs, C) {
+    const self = this;
+    const txt = this.svgString(runs, C);
+    try {
+      navigator.clipboard.writeText(txt);
+      this.setState({ toast: name + ' SVG COPIED' });
+    } catch (e) {
+      this.setState({ toast: 'COPY BLOCKED — SELECT MANUALLY' });
+    }
+    clearTimeout(this._t);
+    this._t = setTimeout(function () { self.setState({ toast: '' }); }, 1800);
+  }
+
+  renderVals() {
+    const self = this;
+    const palId = this.state.pal || this.props.palette || 'gb';
+    const theme = this.state.theme || this.props.theme || 'light';
+    const pal = PALETTES.filter(function (p) { return p.id === palId; })[0] || PALETTES[0];
+    const C = pal[theme === 'dark' ? 'dark' : 'light'];
+    const size = this.props.iconSize || 88;
+    const showLabels = this.props.showLabels !== false;
+
+    const btn = function (active) {
+      return {
+        fontFamily: "'Press Start 2P', monospace", fontSize: '8px', letterSpacing: '1px',
+        padding: '10px 12px', cursor: 'pointer', border: '2px solid ' + C.p,
+        background: active ? C.p : 'transparent', color: active ? C.tile : C.ink,
+        borderRadius: '0px', lineHeight: 1
+      };
+    };
+
+    const palButtons = PALETTES.map(function (p) {
+      return { label: p.label, style: btn(p.id === palId), onClick: function () { self.setState({ pal: p.id }); } };
+    });
+    const themeButtons = [['light', 'LIGHT'], ['dark', 'DARK']].map(function (t) {
+      return { label: t[1], style: btn(t[0] === theme), onClick: function () { self.setState({ theme: t[0] }); } };
+    });
+
+    const palRows = PALETTES.map(function (p) {
+      const K = p[theme === 'dark' ? 'dark' : 'light'];
+      const active = p.id === palId;
+      return {
+        name: p.label,
+        rowStyle: {
+          display: 'flex', gap: '18px', alignItems: 'center', padding: '12px 14px',
+          border: '2px solid ' + C.p, opacity: active ? 1 : 0.5,
+          background: active ? C.p + '18' : 'transparent'
+        },
+        nameStyle: {
+          fontFamily: "'Press Start 2P', monospace", fontSize: '7px', letterSpacing: '1px',
+          width: '86px', lineHeight: 1.6
+        },
+        swatches: [['PRIMARY', K.p], ['ACCENT', K.a], ['SHADE', K.s], ['HIGHLIGHT', K.h], ['TILE', K.tile], ['BACKDROP', K.bg]].map(function (s) {
+          return {
+            label: s[0], hex: s[1].toUpperCase(),
+            chipStyle: { width: '22px', height: '22px', flex: '0 0 22px', background: s[1], border: '2px solid ' + C.p }
+          };
+        })
+      };
+    });
+
+    const groups = GROUPS.map(function (g) {
+      return {
+        title: g.title,
+        count: g.items.length + ' MARKS',
+        icons: g.items.map(function (it) {
+          const rows = G[it[0]] || [];
+          const runs = self.compose(rows);
+          return {
+            label: it[1],
+            frameStyle: { width: size + 'px', height: size + 'px', lineHeight: 0 },
+            labelStyle: {
+              fontFamily: "'Press Start 2P', monospace", fontSize: '7px', letterSpacing: '0.5px',
+              color: C.ink, textAlign: 'center', opacity: showLabels ? 0.85 : 0, lineHeight: 1.4
+            },
+            svg: React.createElement('svg', {
+              viewBox: '0 0 16 16', width: '100%', height: '100%',
+              style: { display: 'block', shapeRendering: 'crispEdges' }
+            }, runs.map(function (r, i) {
+              const map = { t: C.tile, p: C.p, a: C.a, s: C.s, h: C.h };
+              return React.createElement('rect', { key: i, x: r.x, y: r.y, width: r.w, height: 1, fill: map[r.c] });
+            })),
+            onCopy: function () { self.copy(it[1], runs, C); }
+          };
+        })
+      };
+    });
+
+    return {
+      groups: groups, palButtons: palButtons, themeButtons: themeButtons, palRows: palRows,
+      pageStyle: { background: C.bg, color: C.ink, minHeight: '100vh', position: 'relative', transition: 'background 160ms linear' },
+      ruleStyle: { flex: 1, height: '2px', background: C.p, opacity: 0.45 },
+      swatchRowStyle: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 22 },
+      toastText: this.state.toast,
+      toastStyle: {
+        position: 'fixed', bottom: '26px', left: '50%', transform: 'translateX(-50%)',
+        fontFamily: "'Press Start 2P', monospace", fontSize: '8px', letterSpacing: '1px',
+        padding: '12px 16px', background: C.p, color: C.tile,
+        opacity: this.state.toast ? 1 : 0, pointerEvents: 'none', transition: 'opacity 140ms linear'
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

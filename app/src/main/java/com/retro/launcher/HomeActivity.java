@@ -112,7 +112,7 @@ public class HomeActivity extends Activity {
         sky = new SkyView(this);
 
         root = new LauncherRoot(this);
-        home = new HomePanel(this, metrics, prefs);
+        home = new HomePanel(this, metrics, prefs, icons);
         sheet = new BottomSheet(this, metrics);
         drawer = new DrawerPanel(this, metrics, prefs, appRepository, icons, sheet);
         drawer.setOnHomeListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
@@ -180,6 +180,7 @@ public class HomeActivity extends Activity {
 
         refreshPalette();
         refreshTime();
+        refreshSkyLocation();
         drawer.refresh();
         settings.setDockEntries(home.dock.entries());
         refreshPermissionStatus();
@@ -286,6 +287,27 @@ public class HomeActivity extends Activity {
             screenTime.setPalette(palette);
             if (search != null) search.setPalette(palette);
         }
+        applySkyTint();
+    }
+
+    /**
+     * Settings' "TINT WALLPAPER TO PALETTE" switch: on, the sky posterizes to
+     * the palette's six-colour ramp; off, it keeps its own colours.
+     *
+     * <p>Outside the palette-changed guard above on purpose. Toggling the
+     * switch does not change which palette resolves, so anything inside that
+     * guard would never run — which is exactly why the switch used to look
+     * dead: nothing had ever called {@code sky.setTint}.
+     */
+    private void applySkyTint() {
+        sky.setTint(prefs.tint() ? palette.ramp() : null);
+    }
+
+    /** The moon's phase is the same everywhere; which way up it looks is not.
+     *  Latitude comes from the coarse fix the weather already keeps. */
+    private void refreshSkyLocation() {
+        double[] fix = weatherRepository.fix();
+        sky.setLatitude(fix == null ? Float.NaN : (float) fix[0]);
     }
 
     private void refreshTime() {
@@ -350,6 +372,7 @@ public class HomeActivity extends Activity {
             // Just granted: go and get a reading now rather than waiting out
             // the freshness window with an empty widget.
             weatherRepository.refresh(true, this::refreshTime);
+            refreshSkyLocation();
         }
     }
 
@@ -360,6 +383,7 @@ public class HomeActivity extends Activity {
         drawer.refresh();
         refreshPermissionStatus();
         refreshUsage();
+        refreshSkyLocation();
         weatherRepository.refresh(false, this::refreshTime);
     }
 

@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import com.retro.launcher.core.MoonPhase;
 import com.retro.launcher.core.SkyRenderer;
 
 import java.util.Calendar;
@@ -41,6 +42,7 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
     private volatile float weather;
     private volatile int[] tintRamp;
     private volatile float desaturation;
+    private volatile float latitude = Float.NaN;   // no fix yet
 
     private final long startNanos = System.nanoTime();
 
@@ -55,6 +57,11 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
     public void setTint(int[] rampArgb) { this.tintRamp = rampArgb; }
 
     public void setDesaturation(float amount) { this.desaturation = amount; }
+
+    /** The latitude of the coarse fix the weather already keeps, which is all
+     *  the moon needs: it decides which way up the phase is drawn.
+     *  {@code Float.NaN} means "no fix" and reads as the northern view. */
+    public void setLatitude(float degrees) { this.latitude = degrees; }
 
     @Override public void surfaceCreated(SurfaceHolder holder) {
         surfaceReady = true;
@@ -116,10 +123,14 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
 
         r.setTint(tintRamp);
         r.setDesaturation(desaturation);
+        r.setSouthernView(MoonPhase.southernView(latitude));
 
         float hour = decimalHour();
         float seconds = (System.nanoTime() - startNanos) / 1_000_000_000f;
-        r.render(buf, hour, weather, 0.62f, seconds);
+        // Seven sines a frame against a 108xN pixel loop — not worth caching,
+        // and recomputing means the terminator creeps in real time.
+        float moonPhase = MoonPhase.phase(System.currentTimeMillis());
+        r.render(buf, hour, weather, moonPhase, seconds);
         bmp.setPixels(buf, 0, BUF_W, 0, 0, BUF_W, bufH);
 
         SurfaceHolder holder = getHolder();
