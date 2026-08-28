@@ -4,8 +4,6 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.AlarmClock;
 import android.view.LayoutInflater;
 import android.widget.FrameLayout;
@@ -23,8 +21,13 @@ import java.util.Calendar;
 
 /**
  * The clock/weather widget: three independent tap regions (time, date,
- * weather) and a blinking colon. See DESIGN_NOTES §7a and spec §5's
- * "no permission blocks anything" rule — every intent here is best-effort.
+ * weather). See DESIGN_NOTES §7a and spec §5's "no permission blocks
+ * anything" rule — every intent here is best-effort.
+ *
+ * The colon is always solid and seconds are never shown — this is a fixed
+ * design decision (issue #6, 2026-08-28), not a user preference. Do not
+ * reintroduce blinking or a seconds display without updating DESIGN_NOTES.md
+ * first.
  */
 public final class ClockWidget extends FrameLayout {
 
@@ -35,21 +38,9 @@ public final class ClockWidget extends FrameLayout {
     private final GradientDrawable background = new GradientDrawable();
 
     private final Prefs prefs;
-    private final Handler blinkHandler = new Handler(Looper.getMainLooper());
-    private boolean colonOn = true;
     private Calendar lastTime;
 
     private Runnable onTimeTap, onDateTap, onWeatherTap;
-
-    private final Runnable blinkTick = new Runnable() {
-        @Override public void run() {
-            if (prefs.blink()) {
-                colonOn = !colonOn;
-                if (lastTime != null) renderTime(lastTime);
-            }
-            blinkHandler.postDelayed(this, 1000L);
-        }
-    };
 
     public ClockWidget(Context context) {
         super(context);
@@ -72,8 +63,6 @@ public final class ClockWidget extends FrameLayout {
         weatherView.setOnClickListener(v -> {
             if (onWeatherTap != null) onWeatherTap.run();
         });
-
-        blinkHandler.post(blinkTick);
     }
 
     private int borderPx = 2;
@@ -112,15 +101,10 @@ public final class ClockWidget extends FrameLayout {
         int hour24 = c.get(Calendar.HOUR_OF_DAY);
         int hour = prefs.hour12() ? (hour24 % 12 == 0 ? 12 : hour24 % 12) : hour24;
         int minute = c.get(Calendar.MINUTE);
-        String colon = colonOn ? ":" : " ";
         StringBuilder sb = new StringBuilder();
         sb.append(hour < 10 && !prefs.hour12() ? "0" + hour : String.valueOf(hour));
-        sb.append(colon);
+        sb.append(":");
         sb.append(minute < 10 ? "0" + minute : String.valueOf(minute));
-        if (prefs.seconds()) {
-            int sec = c.get(Calendar.SECOND);
-            sb.append(colon).append(sec < 10 ? "0" + sec : String.valueOf(sec));
-        }
         if (prefs.hour12()) {
             sb.append(hour24 < 12 ? " AM" : " PM");
         }

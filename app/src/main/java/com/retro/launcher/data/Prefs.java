@@ -10,9 +10,11 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * The prototype's fourteen persisted keys, one for one. Deliberately absent:
- * the current view, tab and sheet — the launcher always reopens on home.
- * See DESIGN_NOTES §8.
+ * The prototype's persisted keys, one for one, minus {@code seconds} and
+ * {@code blink} — the clock's colon is always solid and never shows
+ * seconds, a fixed design decision, not a preference (issue #6, 2026-08-28).
+ * Deliberately absent: the current view, tab and sheet — the launcher
+ * always reopens on home. See DESIGN_NOTES §8.
  *
  * Every getter falls back to its own default independently, so a corrupt dock
  * list cannot take the palette down with it.
@@ -25,8 +27,6 @@ public final class Prefs {
     public static final String K_THEME    = "theme";
     public static final String K_TINT     = "tint";
     public static final String K_HOUR12   = "hour12";
-    public static final String K_SECONDS  = "seconds";
-    public static final String K_BLINK    = "blink";
     public static final String K_FMT_IDX  = "fmtIdx";
     public static final String K_CUSTOM   = "custom";
     public static final String K_UNIT     = "unit";
@@ -46,8 +46,6 @@ public final class Prefs {
     public String  theme()     { return sp.getString(K_THEME, PaletteResolver.SYSTEM); }
     public boolean tint()      { return sp.getBoolean(K_TINT, false); }
     public boolean hour12()    { return sp.getBoolean(K_HOUR12, true); }
-    public boolean seconds()   { return sp.getBoolean(K_SECONDS, false); }
-    public boolean blink()     { return sp.getBoolean(K_BLINK, true); }
     public int     fmtIdx()    { return sp.getInt(K_FMT_IDX, 0); }
     public String  custom()    { return sp.getString(K_CUSTOM, ""); }
     public String  unit()      { return sp.getString(K_UNIT, "C"); }

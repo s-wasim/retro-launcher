@@ -59,14 +59,16 @@ public final class BottomSheet extends FrameLayout {
         titleView = new TextView(context);
         titleView.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         titleView.setAllCaps(true);
-        titleView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(4.4f, 14f));
+        titleView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_TITLE_CQW, DrawerPanel.SIZE_TITLE_MIN));
         Tint.setRole(titleView, Tint.ROLE_INK);
         header.addView(titleView, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView done = new TextView(context);
         done.setText("DONE");
         done.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        done.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(3.2f, 11f));
+        done.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
         Tint.setRole(done, Tint.ROLE_P);
         done.setOnClickListener(v -> close());
         header.addView(done);
@@ -132,7 +134,8 @@ public final class BottomSheet extends FrameLayout {
         TextView labelView = new TextView(getContext());
         labelView.setText(label);
         labelView.setTypeface(Typeface.MONOSPACE);
-        labelView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(3.2f, 11f));
+        labelView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
         if (palette != null) labelView.setTextColor(palette.ink);
         row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -140,7 +143,8 @@ public final class BottomSheet extends FrameLayout {
             TextView marker = new TextView(getContext());
             marker.setText(markedText);
             marker.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-            marker.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(2.5f, 9f));
+            marker.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                    metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
             if (palette != null) marker.setTextColor(palette.p);
             row.addView(marker);
         }
