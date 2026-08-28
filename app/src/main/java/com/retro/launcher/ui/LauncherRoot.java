@@ -1,5 +1,7 @@
 package com.retro.launcher.ui;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -268,16 +270,29 @@ public final class LauncherRoot extends ViewGroup {
         }
 
         // Visible for the whole slide; hidden again only once it has left.
-        // withEndAction does not run on cancel, so an interrupted slide never
-        // hides a panel the user is dragging back in.
         panel.setVisibility(VISIBLE);
+
+        // Bookkeeping goes in onAnimationEnd rather than withEndAction because
+        // withEndAction is skipped when an animation is cancelled — including
+        // the cancel the framework issues if the view is detached mid-slide.
+        // Missing that would strand running[slot], and applyRest would then
+        // never touch this panel again: it would sit off-screen for good.
+        // onAnimationEnd fires on every termination path.
+        final boolean[] cancelled = {false};
         ViewPropertyAnimator a = panel.animate()
                 .translationX(tx).translationY(ty)
                 .setDuration(SETTLE_MS)
                 .setInterpolator(settle)
-                .withEndAction(() -> {
-                    running[slot] = null;
-                    if (!shown) panel.setVisibility(INVISIBLE);
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationCancel(Animator anim) {
+                        cancelled[0] = true;
+                    }
+                    @Override public void onAnimationEnd(Animator anim) {
+                        running[slot] = null;
+                        // An interrupted slide must not hide a panel the
+                        // finger is currently dragging back in.
+                        if (!cancelled[0] && !shown) panel.setVisibility(INVISIBLE);
+                    }
                 });
         running[slot] = a;
         a.start();
