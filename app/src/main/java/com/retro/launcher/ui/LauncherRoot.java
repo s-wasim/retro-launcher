@@ -441,7 +441,7 @@ public final class LauncherRoot extends ViewGroup {
             float cx = x + g.getScrollX() - c.getLeft() - c.getTranslationX();
             float cy = y + g.getScrollY() - c.getTop() - c.getTranslationY();
             if (cx < 0 || cx >= c.getWidth() || cy < 0 || cy >= c.getHeight()) continue;
-            if (ownedByChild(c, cx, cy, a, delta)) return true;
+            if (ownedByChild(c, cx, cy, wanted, delta)) return true;
         }
         return false;
     }
