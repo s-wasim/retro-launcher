@@ -85,7 +85,9 @@ public final class SettingsPanel extends FrameLayout {
         headerPadTop = header.getPaddingTop();
 
         ScrollView scroll = new ScrollView(context);
-        LauncherRoot.setNoSwipe(scroll);
+        // Vertical only: a swipe left across the settings body closes the
+        // panel. The scrubber and toggles inside still claim their own drags.
+        LauncherRoot.setVerticalScroller(scroll);
         LinearLayout content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         int sidePad = Math.round(metrics.cqw(4.5f));
@@ -404,7 +406,7 @@ public final class SettingsPanel extends FrameLayout {
 
         HorizontalScrollView tokenScroll = new HorizontalScrollView(getContext());
         tokenScroll.setHorizontalScrollBarEnabled(false);
-        LauncherRoot.setNoSwipe(tokenScroll);
+        LauncherRoot.setNoSwipe(tokenScroll, LauncherRoot.AXIS_H);
         LinearLayout tokenRow = new LinearLayout(getContext());
         tokenRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams tokenRowLp = new LinearLayout.LayoutParams(

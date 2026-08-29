@@ -21,7 +21,16 @@ import com.retro.launcher.util.Insets;
  *     wins and is locked for the rest of the gesture
  *   - panels track 1:1 while dragging, then settle over 260ms
  *   - a gesture starting inside the system gesture inset is left to Android
- *   - a gesture starting over a no-swipe subtree is left to that subtree
+ *   - a gesture over a no-swipe subtree is left to that subtree, on the axes
+ *     that subtree claims
+ *
+ * A panel closes with the reverse of the swipe that opened it, and that has to
+ * work from anywhere on the panel, including on top of its list. So no-swipe
+ * ownership is per-axis rather than per-subtree: a vertical list owns vertical
+ * drags and lets sideways ones through to close the panel, and it owns a
+ * vertical drag only while it still has somewhere to scroll — at the top of
+ * its travel a downward drag belongs to the panel, which is how the screen
+ * time panel is pulled shut. See {@link #setNoSwipe(View, int)}.
  *
  * Animation discipline (each rule exists because breaking it is visible):
  *   1. Exactly one writer owns a panel's translation at a time. A running
@@ -45,6 +54,15 @@ public final class LauncherRoot extends ViewGroup {
 
     private static final int NO_SWIPE_TAG = 0x7E100001;
 
+    /** Axis bits for {@link #setNoSwipe(View, int)}. The values double as the
+     *  {@link #axis} codes, so ownership is one mask test. */
+    public static final int AXIS_H = 1;
+    public static final int AXIS_V = 2;
+
+    /** Extra no-swipe bit: owns vertical drags conditionally — see
+     *  {@link #setVerticalScroller(View)}. */
+    private static final int SCROLLS_V = 4;
+
     private static final float H_THRESHOLD = 0.22f;  // fraction of width
     private static final float V_THRESHOLD = 0.16f;  // fraction of height
     private static final long  SETTLE_MS   = 260L;
@@ -57,7 +75,7 @@ public final class LauncherRoot extends ViewGroup {
 
     private int view = VIEW_HOME;
     private float downX, downY;
-    private int axis;                 // 0 none, 1 horizontal, 2 vertical
+    private int axis;                 // 0 open, AXIS_H, AXIS_V, or -1 for not ours
     private boolean tracking;
     private final int slop;
     private final PathInterpolator settle = new PathInterpolator(.2f, .7f, .2f, 1f);
@@ -80,9 +98,34 @@ public final class LauncherRoot extends ViewGroup {
                 });
     }
 
-    /** Marks a view and its descendants as owning their own horizontal or
-     *  vertical drags — the prototype's [data-noswipe]. */
-    public static void setNoSwipe(View v) { v.setTag(NO_SWIPE_TAG, Boolean.TRUE); }
+    /** Marks a view and its descendants as owning their own drags on both
+     *  axes — the prototype's [data-noswipe]. */
+    public static void setNoSwipe(View v) { setNoSwipe(v, AXIS_H | AXIS_V); }
+
+    /**
+     * Marks a view as owning drags on {@code axes} only ({@link #AXIS_H},
+     * {@link #AXIS_V}, or both). Drags on the other axis carry on to the
+     * panel — that is what lets a horizontal swipe anywhere over a vertical
+     * list close the panel the list lives in.
+     *
+     * Ownership does not stop the walk: a horizontal slider inside a
+     * vertically-owned list is still found and still keeps its axis.
+     */
+    public static void setNoSwipe(View v, int axes) { v.setTag(NO_SWIPE_TAG, axes); }
+
+    /**
+     * Marks a vertically scrolling container: it owns a vertical drag only
+     * while it can still scroll that way, so a drag that would scroll past
+     * the end of its content becomes a panel gesture instead. Horizontal
+     * drags always pass through.
+     */
+    public static void setVerticalScroller(View v) {
+        v.setTag(NO_SWIPE_TAG, SCROLLS_V);
+        // The stretch/glow at the end of the travel is off-style here, and now
+        // actively misleading: it animates an edge that is in the middle of
+        // handing the gesture over to the panel.
+        v.setOverScrollMode(View.OVER_SCROLL_NEVER);
+    }
 
     public void setDoubleTapListener(Runnable r) { this.onDoubleTap = r; }
 
@@ -136,18 +179,23 @@ public final class LauncherRoot extends ViewGroup {
             case MotionEvent.ACTION_DOWN:
                 downX = e.getX(); downY = e.getY();
                 axis = 0; tracking = false;
-                if (inGestureInset(downX) || overNoSwipe(downX, downY)) {
+                // A subtree that owns both axes is opaque to us from the first
+                // event, taps included — that is what keeps a near-miss on the
+                // dock or a panel header from reaching the double-tap
+                // detector. Anything that owns only one axis has to wait for
+                // the axis lock before we know whose gesture this is.
+                if (inGestureInset(downX)
+                        || ownedByChild(this, downX, downY, AXIS_H | AXIS_V, 0f)) {
                     axis = -1;   // this gesture is not ours
                 }
                 return false;
 
             case MotionEvent.ACTION_MOVE:
                 if (axis == -1) return false;
-                float dx = e.getX() - downX, dy = e.getY() - downY;
                 if (axis == 0) {
+                    float dx = e.getX() - downX, dy = e.getY() - downY;
                     if (Math.abs(dx) < slop && Math.abs(dy) < slop) return false;
-                    axis = Math.abs(dx) > Math.abs(dy) ? 1 : 2;
-                    tracking = true;
+                    lockAxis(dx, dy);
                 }
                 return tracking;
         }
@@ -165,8 +213,8 @@ public final class LauncherRoot extends ViewGroup {
             case MotionEvent.ACTION_MOVE:
                 if (axis == 0) {
                     if (Math.abs(dx) < slop && Math.abs(dy) < slop) return true;
-                    axis = Math.abs(dx) > Math.abs(dy) ? 1 : 2;
-                    tracking = true;
+                    lockAxis(dx, dy);
+                    if (axis == -1) return false;
                 }
                 drag(dx, dy, w, h);
                 return true;
@@ -180,8 +228,62 @@ public final class LauncherRoot extends ViewGroup {
         return true;
     }
 
+    /**
+     * A scrolling child asks for this the instant it passes its own 8dp slop,
+     * which is before our 12dp axis lock. Granting it there would hand every
+     * drag that starts over a list to the list — including the sideways drag
+     * that closes the panel the list is in. So we answer it ourselves: while
+     * the axis is still open we keep receiving events and decide at 12dp;
+     * once it is locked the decision cannot change, and the request passes
+     * through as normal.
+     */
+    @Override public void requestDisallowInterceptTouchEvent(boolean disallow) {
+        if (axis == 0) return;
+        super.requestDisallowInterceptTouchEvent(disallow);
+    }
+
+    /**
+     * Pick the gesture's axis from its first 12dp and decide who gets it:
+     * this root, or the subtree under the finger. {@code axis} comes out 1, 2,
+     * or -1 for "not ours".
+     */
+    private void lockAxis(float dx, float dy) {
+        int a = Math.abs(dx) > Math.abs(dy) ? AXIS_H : AXIS_V;
+        float delta = a == AXIS_H ? dx : dy;
+        if (!moves(a, delta) || ownedByChild(this, downX, downY, a, delta)) {
+            axis = -1;
+            tracking = false;
+            return;
+        }
+        axis = a;
+        tracking = true;
+    }
+
+    /**
+     * True if a drag of this sign on this axis takes the current view
+     * somewhere. A gesture that cannot move anything is better left to
+     * whatever is under it than claimed and swallowed — dragging up at the
+     * bottom of the screen time list should keep scrolling the list, not
+     * freeze it against a panel that is already home.
+     */
+    private boolean moves(int a, float delta) {
+        if (a == AXIS_H) {
+            switch (view) {
+                case VIEW_HOME:     return true;      // right for settings, left for drawer
+                case VIEW_SETTINGS: return delta < 0; // push it back off to the left
+                case VIEW_DRAWER:   return delta > 0; // push it back off to the right
+                default:            return false;
+            }
+        }
+        switch (view) {
+            case VIEW_HOME: return delta < 0;                 // swipe up for screen time
+            case VIEW_TIME: return delta > 0;                 // pull down to close it
+            default:        return false;
+        }
+    }
+
     private void drag(float dx, float dy, int w, int h) {
-        if (axis == 1) {
+        if (axis == AXIS_H) {
             if (view == VIEW_HOME) {
                 seize(VIEW_SETTINGS, settings);
                 seize(VIEW_DRAWER, drawer);
@@ -194,7 +296,7 @@ public final class LauncherRoot extends ViewGroup {
                 seize(VIEW_DRAWER, drawer);
                 drawer.setTranslationX(clamp(dx, 0, w));
             }
-        } else if (axis == 2) {
+        } else if (axis == AXIS_V) {
             if (view == VIEW_HOME) {
                 seize(VIEW_TIME, time);
                 time.setTranslationY(h + clamp(dy, -h, 0));
@@ -222,14 +324,14 @@ public final class LauncherRoot extends ViewGroup {
 
     private void release(float dx, float dy, int w, int h) {
         int next = view;
-        if (axis == 1) {
+        if (axis == AXIS_H) {
             float th = w * H_THRESHOLD;
             if (view == VIEW_HOME) {
                 if (dx > th)       next = VIEW_SETTINGS;
                 else if (dx < -th) next = VIEW_DRAWER;
             } else if (view == VIEW_SETTINGS && dx < -th) next = VIEW_HOME;
             else if (view == VIEW_DRAWER && dx > th)      next = VIEW_HOME;
-        } else if (axis == 2) {
+        } else if (axis == AXIS_V) {
             float th = h * V_THRESHOLD;
             if (view == VIEW_HOME && dy < -th)      next = VIEW_TIME;
             else if (view == VIEW_TIME && dy > th)  next = VIEW_HOME;
@@ -303,22 +405,34 @@ public final class LauncherRoot extends ViewGroup {
         return x < g[0] || x > getWidth() - g[1];
     }
 
-    private boolean overNoSwipe(float x, float y) {
-        return hitsNoSwipe(this, x, y);
-    }
-
     /**
-     * True if (x, y) — in {@code v}'s own coordinate space — lands on a subtree
-     * tagged no-swipe.
+     * True if some view under (x, y) — in {@code v}'s own coordinate space —
+     * owns every axis in {@code wanted} for a drag of this sign. Pass a single
+     * axis to ask who gets one gesture, or both to ask whether the subtree is
+     * opaque to this root altogether.
      *
      * Coordinates are converted the same way {@code dispatchTouchEvent} does
      * it: add the parent's scroll, then subtract the child's layout position
      * and its translation. The scroll term is what matters here — the drawer's
      * app list is a scrolling container, so testing without it checked the
      * wrong rows the moment the list moved.
+     *
+     * A view that owns the other axis does not end the walk. The screen time
+     * panel's slider sits inside its scroll view; the scroll view declines the
+     * horizontal drag and the slider below it still has to claim it.
      */
-    private static boolean hitsNoSwipe(View v, float x, float y) {
-        if (Boolean.TRUE.equals(v.getTag(NO_SWIPE_TAG))) return true;
+    private static boolean ownedByChild(View v, float x, float y, int wanted, float delta) {
+        Object tag = v.getTag(NO_SWIPE_TAG);
+        if (tag instanceof Integer) {
+            int owned = (Integer) tag;
+            if ((owned & wanted) == wanted) return true;
+            // canScrollVertically takes the scroll direction, which is the
+            // opposite of the finger's: dragging down reveals content above.
+            if (wanted == AXIS_V && (owned & SCROLLS_V) != 0
+                    && v.canScrollVertically(delta > 0 ? -1 : 1)) {
+                return true;
+            }
+        }
         if (!(v instanceof ViewGroup)) return false;
         ViewGroup g = (ViewGroup) v;
         for (int i = g.getChildCount() - 1; i >= 0; i--) {
@@ -327,7 +441,7 @@ public final class LauncherRoot extends ViewGroup {
             float cx = x + g.getScrollX() - c.getLeft() - c.getTranslationX();
             float cy = y + g.getScrollY() - c.getTop() - c.getTranslationY();
             if (cx < 0 || cx >= c.getWidth() || cy < 0 || cy >= c.getHeight()) continue;
-            if (hitsNoSwipe(c, cx, cy)) return true;
+            if (ownedByChild(c, cx, cy, a, delta)) return true;
         }
         return false;
     }

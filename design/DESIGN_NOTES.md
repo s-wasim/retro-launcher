@@ -62,6 +62,7 @@ Behavioral detail from `onDown`/`onMove`/`onUp`:
 - **Opt-out regions.** Any element under `[data-noswipe]` — every scrolling
   list, the tab strip, the A–Z scrubber, the limit slider, the sheet —
   swallows the gesture so panel navigation can't fight inner scrolling.
+  **Native takes this per axis** — see §9 delta 14.
 - **Reverse swipes** return to home; each panel also has an explicit
   `CLOSE`/`HOME` button in its header.
 
@@ -320,6 +321,8 @@ Header `SETTINGS` + `CLOSE`. Four sections, `6cqw` apart:
 Header `SCREEN TIME` + `CLOSE`. **All data is hardcoded in the prototype.**
 
 - `TODAY` total at `8cqw` (from `USE` + 96 minutes), and `PICKUPS` (literal 87).
+  Native puts the `BUY ME A COFFEE` button on the total's row, right-aligned
+  (§9 delta 15).
 - **Daily limit card** — `DAILY LIMIT — 4H 00M` with a state label reading
   either `<n>M LEFT` or `LIMIT EXCEEDED` in `h`. A usage bar (`a` when over,
   `p` otherwise). Below, a `−15` button, a drag track, and `+15`. Range
@@ -387,6 +390,8 @@ deliberately; none is a silent omission.
 | 11 | **Theme** | `LIGHT`/`DARK`, default dark, ignores the OS. | Adds `AUTO` following the system dark-mode setting, and defaults to it. | Mirrors the palette's existing AUTO. |
 | 12 | **Navigation** | Swipe from anywhere. | Swipes starting inside the system gesture inset are ignored, so Back keeps working. | Horizontal edge swipes belong to Android. |
 | 13 | **Bezel chrome** | 30px/22px rounded device frame. | Dropped. Portrait-locked, edge-to-edge, wallpaper behind the system bars, UI inset. | The launcher *is* the screen. |
+| 14 | **Opt-out regions** | `[data-noswipe]` swallows a gesture whole, on both axes (§1). | Ownership is **per axis** (amended 2026-08-29). A vertical list claims vertical drags and lets sideways ones through; a horizontal strip claims the opposite; a widget that drags on its own — the slider, the scrubber, the dock, a panel header — still claims both. A vertical scroller also *releases* the vertical axis at the end of its travel, so a downward drag with nothing left to scroll pulls the screen time panel shut. A drag that can't move the current view is never claimed at all. | The reverse swipe has to work from anywhere on the panel, and a panel is mostly list. With whole-subtree opt-out the closing swipe worked only on the few strips of background either side of the content, which reads as the gesture being broken. Per-axis costs nothing: a list has no use for a sideways drag. |
+| 15 | **Donations** | None. | A bordered `BUY ME A COFFEE` button with a pixel mug beside the screen time total, drawn in palette roles like any icon. **Inert until a URL is set** in `CoffeeButton.DONATION_URL`; the tap fires `ACTION_VIEW` once one is. | Owner requirement. The screen time panel is where someone is already thinking about what the launcher is worth to them. |
 
 ---
 

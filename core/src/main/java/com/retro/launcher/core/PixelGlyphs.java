@@ -371,6 +371,19 @@ public final class PixelGlyphs {
     public static char[][] compose(String name) {
         String[] rows = MARKS.get(name);
         if (rows == null) throw new IllegalArgumentException("no mark named " + name);
+        return composeRows(rows);
+    }
+
+    /**
+     * {@link #compose} for a 12x12 mark that is not in the table — a mark that
+     * belongs to the launcher's own chrome rather than to an installed app.
+     * The table stays exactly the design sheet's 51 app logos; the stamping
+     * rule is the same for anything drawn on a tile.
+     */
+    public static char[][] composeRows(String[] rows) {
+        if (rows.length != GLYPH) {
+            throw new IllegalArgumentException("mark has " + rows.length + " rows");
+        }
 
         char[][] grid = new char[SIZE][SIZE];
         for (int y = 0; y < SIZE; y++) {
@@ -396,7 +409,15 @@ public final class PixelGlyphs {
      * one loop of {@code drawRect} either way.
      */
     public static int[][] runs(String name) {
-        char[][] grid = compose(name);
+        return runsOf(compose(name));
+    }
+
+    /** {@link #runs} for a mark composed by {@link #composeRows}. */
+    public static int[][] runsRows(String[] rows) {
+        return runsOf(composeRows(rows));
+    }
+
+    private static int[][] runsOf(char[][] grid) {
         java.util.List<int[]> out = new java.util.ArrayList<>();
         for (int y = 0; y < SIZE; y++) {
             int x = 0;

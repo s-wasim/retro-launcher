@@ -98,7 +98,9 @@ public final class DrawerPanel extends FrameLayout {
         int pad = Math.round(metrics.cqw(4.5f));
         tabStrip.setPadding(pad, 0, pad, pad);
         tabScroll.addView(tabStrip);
-        LauncherRoot.setNoSwipe(tabScroll);
+        // The tab strip scrolls sideways, so it owns sideways drags; a
+        // vertical one over it is not the drawer's to do anything with.
+        LauncherRoot.setNoSwipe(tabScroll, LauncherRoot.AXIS_H);
         column.addView(tabScroll);
 
         LinearLayout row = new LinearLayout(context);
@@ -108,7 +110,9 @@ public final class DrawerPanel extends FrameLayout {
         listView = new ListView(context);
         listView.setAdapter(adapter);
         listView.setDivider(null);
-        LauncherRoot.setNoSwipe(listView);
+        // Vertical only: a swipe right across the app list closes the drawer,
+        // the same swipe that opened it, run backwards.
+        LauncherRoot.setVerticalScroller(listView);
         listView.setOnItemClickListener((AdapterView<?> parent, View v, int position, long id) -> {
             Object item = adapter.getItem(position);
             if (item instanceof AppEntry) launch((AppEntry) item);
