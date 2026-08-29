@@ -322,14 +322,17 @@ Header `SCREEN TIME` + `CLOSE`. **All data is hardcoded in the prototype.**
 
 - `TODAY` total at `8cqw` (from `USE` + 96 minutes), and `PICKUPS` (literal 87).
   Native puts the `BUY ME A COFFEE` button on the total's row, right-aligned
-  (§9 delta 15).
+  (§9 delta 15). The total is the **device's own screen-on time minus the
+  launcher's**, not a sum of app timings (§9 delta 16).
 - **Daily limit card** — `DAILY LIMIT — 4H 00M` with a state label reading
   either `<n>M LEFT` or `LIMIT EXCEEDED` in `h`. A usage bar (`a` when over,
   `p` otherwise). Below, a `−15` button, a drag track, and `+15`. Range
   **30–600 minutes, snapped to 15**. Over-limit paints the card's background `s`.
 - **LAST 7 DAYS** — 7 bars, `26cqw` tall, each labelled with hours and a
   weekday; bars over the limit use `a` instead of `p`.
-- **MOST USED** — 6 rows: glyph, name, a proportional bar, minutes.
+- **MOST USED** — 6 rows: glyph, name, a proportional bar, minutes. Native
+  never lists the launcher itself. The rows need not add up to `TODAY`: they
+  are app timings, the total is the device's (§9 delta 16).
 
 **Nothing happens at the limit** — the label turns and that's all.
 
@@ -392,6 +395,7 @@ deliberately; none is a silent omission.
 | 13 | **Bezel chrome** | 30px/22px rounded device frame. | Dropped. Portrait-locked, edge-to-edge, wallpaper behind the system bars, UI inset. | The launcher *is* the screen. |
 | 14 | **Opt-out regions** | `[data-noswipe]` swallows a gesture whole, on both axes (§1). | Ownership is **per axis** (amended 2026-08-29). A vertical list claims vertical drags and lets sideways ones through; a horizontal strip claims the opposite; a widget that drags on its own — the slider, the scrubber, the dock, a panel header — still claims both. A vertical scroller also *releases* the vertical axis at the end of its travel, so a downward drag with nothing left to scroll pulls the screen time panel shut. A drag that can't move the current view is never claimed at all. | The reverse swipe has to work from anywhere on the panel, and a panel is mostly list. With whole-subtree opt-out the closing swipe worked only on the few strips of background either side of the content, which reads as the gesture being broken. Per-axis costs nothing: a list has no use for a sideways drag. |
 | 15 | **Donations** | None. | A bordered `BUY ME A COFFEE` button with a pixel mug beside the screen time total, drawn in palette roles like any icon. **Inert until a URL is set** in `CoffeeButton.DONATION_URL`; the tap fires `ACTION_VIEW` once one is. | Owner requirement. The screen time panel is where someone is already thinking about what the launcher is worth to them. |
+| 16 | **What counts as screen time** | Hardcoded, so the question never came up. | The launcher is **never** counted — not in the `TODAY` total, not in the week chart, not in `MOST USED`. The total prefers the **device's own screen-on record** (`SCREEN_INTERACTIVE` → `SCREEN_NON_INTERACTIVE` events, API 28+) **minus** the launcher's foreground time; the per-app sum is only computed for a day the device reported no screen events at all — below API 28, or a day missing from the event window. Both paths go through `UsageMath.resolveTotal`, which floors at zero. Added 2026-08-29. | Time spent looking at the home screen is not time spent on an app, and on a launcher this is a large number: it was inflating the user's own screen time with the act of checking it. Preferring the device's reading also makes the total match what the phone's own digital wellbeing screen says, rather than a reconstruction that double-counts overlapping foreground spans. The subtraction, rather than a per-app exclusion, is what keeps that agreement: the device number is opaque and includes the launcher. |
 
 ---
 

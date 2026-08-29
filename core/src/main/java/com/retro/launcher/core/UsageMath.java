@@ -1,5 +1,6 @@
 package com.retro.launcher.core;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
@@ -80,6 +81,39 @@ public final class UsageMath {
     public static long totalForDay(List<Interval> intervals, long dayStartMillis, TimeZone tz) {
         Long v = dailyTotals(intervals, tz).get(dayStartMillis);
         return v == null ? 0L : v;
+    }
+
+    /** Every interval except {@code pkg}'s — the launcher's own foreground
+     *  time is not screen time (§9 delta 16). A null {@code pkg} filters nothing. */
+    public static List<Interval> excluding(List<Interval> intervals, String pkg) {
+        List<Interval> out = new ArrayList<>(intervals.size());
+        for (Interval iv : intervals) {
+            if (pkg == null || !pkg.equals(iv.pkg)) out.add(iv);
+        }
+        return out;
+    }
+
+    /** The mirror of {@link #excluding}: only {@code pkg}'s intervals. */
+    public static List<Interval> only(List<Interval> intervals, String pkg) {
+        List<Interval> out = new ArrayList<>();
+        for (Interval iv : intervals) {
+            if (pkg != null && pkg.equals(iv.pkg)) out.add(iv);
+        }
+        return out;
+    }
+
+    /**
+     * Today's headline total. The device's own record of how long the screen
+     * was awake wins when there is one — minus the time spent looking at the
+     * launcher — and the locally reconstructed per-app sum is only used when
+     * the device reported nothing ({@code deviceMillis <= 0}). Never negative:
+     * the two readings come from different bookkeeping and a launcher total
+     * larger than the screen-on span means the device data is unusable, so it
+     * floors at zero rather than reporting a nonsense number.
+     */
+    public static long resolveTotal(long deviceMillis, long launcherMillis, long fallbackMillis) {
+        if (deviceMillis <= 0) return Math.max(0L, fallbackMillis);
+        return Math.max(0L, deviceMillis - launcherMillis);
     }
 
     public static int snapLimit(int minutes) {
