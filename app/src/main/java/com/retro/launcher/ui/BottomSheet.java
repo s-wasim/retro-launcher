@@ -145,9 +145,16 @@ public final class BottomSheet extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
-            // The sheet is anchored to the bottom edge, so without this the
-            // ADD row and the last list row sit under the gesture pill.
-            panel.setPadding(sys.left, panel.getPaddingTop(), sys.right, sys.bottom);
+            // The IME belongs in this one alongside the bars. The sheet is
+            // anchored to the bottom edge and the window does not resize
+            // itself under edge-to-edge, so without the keyboard's inset the
+            // NEW CATEGORY field is behind the keys the moment it is tapped —
+            // you type the name blind. With it, the sheet lifts clear.
+            // SearchOverlay has always asked for ime() for the same reason.
+            android.graphics.Insets bottom = insets.getInsets(
+                    android.view.WindowInsets.Type.systemBars()
+                            | android.view.WindowInsets.Type.ime());
+            panel.setPadding(sys.left, panel.getPaddingTop(), sys.right, bottom.bottom);
         }
         return super.onApplyWindowInsets(insets);
     }
