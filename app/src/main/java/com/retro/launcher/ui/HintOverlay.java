@@ -31,10 +31,13 @@ public final class HintOverlay extends FrameLayout {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER);
 
-        // Search has no visible affordance by design (DESIGN_NOTES §5), so
-        // this line is the only place anyone learns it exists.
+        // None of these gestures has a visible affordance, by design
+        // (DESIGN_NOTES §5), so this screen is the only place anyone learns
+        // they exist — which is why every one of them has to be listed here,
+        // the two non-swipe ones included.
         String[] lines = {"SWIPE TO MOVE", "→ SETTINGS", "← APP DRAWER",
-                "↑ SCREEN TIME", "DOUBLE-TAP TO SEARCH"};
+                "↑ SCREEN TIME", "↓ NOTIFICATIONS",
+                "DOUBLE-TAP TO SEARCH", "LONG-PRESS TO LOCK"};
         for (String line : lines) {
             TextView t = new TextView(context);
             t.setText(line);
@@ -50,6 +53,27 @@ public final class HintOverlay extends FrameLayout {
             column.addView(t, lp);
         }
 
+        // Lock and notifications both need a one-time switch flipped before
+        // the gesture above does anything, and being sent to Settings is a
+        // worse first impression than being told to expect it. Same for the
+        // default-launcher step, which is what makes the home gesture reach
+        // this launcher at all.
+        TextView setup = new TextView(context);
+        setup.setText("LOCK AND NOTIFICATIONS NEED SWITCHING ON UNDER\n"
+                + "SETTINGS → PERMISSIONS, WHERE YOU CAN ALSO MAKE\n"
+                + "THIS YOUR DEFAULT LAUNCHER");
+        setup.setTypeface(Typeface.MONOSPACE);
+        setup.setAllCaps(true);
+        setup.setTextColor(0xFF8A8A8A);
+        setup.setGravity(Gravity.CENTER);
+        setup.setLineSpacing(0f, 1.35f);
+        setup.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
+        LinearLayout.LayoutParams setupLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        setupLp.topMargin = Math.round(metrics.cqw(8f));
+        column.addView(setup, setupLp);
+
         TextView tap = new TextView(context);
         tap.setText("TAP ANYWHERE TO BEGIN");
         tap.setTypeface(Typeface.MONOSPACE);
@@ -60,7 +84,7 @@ public final class HintOverlay extends FrameLayout {
                 metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
         LinearLayout.LayoutParams tapLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tapLp.topMargin = Math.round(metrics.cqw(8f));
+        tapLp.topMargin = Math.round(metrics.cqw(6f));
         column.addView(tap, tapLp);
 
         addView(column, new FrameLayout.LayoutParams(

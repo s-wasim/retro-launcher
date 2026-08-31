@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Retro Launcher</string>
+    <!-- Shown in Android's Accessibility settings, so it has to say plainly
+         what the service does and what it does not do. -->
+    <string name="shade_service_description">Lets a swipe down on the home screen open your notification shade. Retro Launcher does not read the screen, your notifications, or anything you type — this permission is used only to open the shade.</string>
 </resources>

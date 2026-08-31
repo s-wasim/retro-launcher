@@ -73,6 +73,12 @@ public final class LauncherRoot extends ViewGroup {
      *  Indexed by VIEW_*; the home slot stays null, home never moves. */
     private final ViewPropertyAnimator[] running = new ViewPropertyAnimator[4];
 
+    /** True while the finger owns that panel's translation — set by
+     *  {@link #seize}, cleared when the gesture ends. The drag half of rule 1:
+     *  a running animator is not the only writer {@link #applyRest} has to
+     *  yield to. See the comment there. */
+    private final boolean[] held = new boolean[4];
+
     private int view = VIEW_HOME;
     private float downX, downY;
     private int axis;                 // 0 open, AXIS_H, AXIS_V, or -1 for not ours
@@ -168,19 +174,42 @@ public final class LauncherRoot extends ViewGroup {
     }
 
     /**
-     * Snap every panel that no animator owns to its resting offset.
+     * Snap every panel that neither an animator nor the finger owns to its
+     * resting offset.
      *
      * onLayout fires whenever any descendant calls requestLayout — a minute
      * tick relabelling the clock, an inset dispatch, a palette rebuild. Those
      * happen freely mid-slide, so this must leave an animating panel alone;
      * writing the resting offset underneath a running animator teleports the
      * panel to its destination while the slide is still playing out.
+     *
+     * The {@code held} test is the same rule for the other writer, and it is
+     * what killed the "ghost panel". A drag has no animator, so the animator
+     * test alone let every layout pass mid-drag stamp the *rest* transform
+     * over the finger's. The next MOVE put it back, so the panel alternated
+     * between two positions and two alphas from frame to frame, reading as a
+     * second, fainter copy sitting behind the real one.
+     *
+     * That also explains why it only ever showed on the way out. Closing, the
+     * rest state is "fully open, opaque, on top", so every stamped frame is a
+     * full-screen flash of the panel; opening, the rest state is "off-screen
+     * at alpha 0", so the identical glitch is invisible.
+     *
+     * A drag guarantees such a layout pass, too: {@link #seize} makes the
+     * incoming panel VISIBLE, {@code setVisibility} calls requestLayout, and
+     * {@link #rest} below would set it straight back to INVISIBLE — the two
+     * ping-ponging once per frame for the whole gesture.
      */
     private void applyRest(int w, int h) {
         if (home == null) return;
-        if (running[VIEW_SETTINGS] == null) rest(settings, view == VIEW_SETTINGS, -w, 0);
-        if (running[VIEW_DRAWER]   == null) rest(drawer,   view == VIEW_DRAWER,    w, 0);
-        if (running[VIEW_TIME]     == null) rest(time,     view == VIEW_TIME,      0, h);
+        if (idle(VIEW_SETTINGS)) rest(settings, view == VIEW_SETTINGS, -w, 0);
+        if (idle(VIEW_DRAWER))   rest(drawer,   view == VIEW_DRAWER,    w, 0);
+        if (idle(VIEW_TIME))     rest(time,     view == VIEW_TIME,      0, h);
+    }
+
+    /** True when no other writer owns this panel's translation. */
+    private boolean idle(int slot) {
+        return running[slot] == null && !held[slot];
     }
 
     private static void rest(View v, boolean shown, float offX, float offY) {
@@ -237,7 +266,8 @@ public final class LauncherRoot extends ViewGroup {
 
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                if (tracking) release(dx, dy, w, h);
+                if (tracking) release(dx, dy, w, h);   // clears `held` via goTo
+                else java.util.Arrays.fill(held, false);
                 axis = 0; tracking = false;
                 return true;
         }
@@ -266,13 +296,18 @@ public final class LauncherRoot extends ViewGroup {
     private void lockAxis(float dx, float dy) {
         int a = Math.abs(dx) > Math.abs(dy) ? AXIS_H : AXIS_V;
         float delta = a == AXIS_H ? dx : dy;
-        // A swipe down starting inside the top system-bar inset, on Home,
-        // is otherwise inert (moves() below returns false for it) — claim
-        // it for the status-bar shade instead rather than leaving it as a
-        // no-op drag. Anything starting over a no-swipe subtree (the clock)
-        // never reaches lockAxis in the first place, per onInterceptTouchEvent.
-        if (a == AXIS_V && delta > 0 && view == VIEW_HOME && onStatusBarSwipe != null
-                && downY <= Insets.systemTop(this)) {
+        // A swipe down on Home is otherwise inert — moves() below returns
+        // false for it — so claim it for the notification shade rather than
+        // leaving it a no-op drag. Anything starting over a no-swipe subtree
+        // (the clock, the dock) never reaches lockAxis in the first place,
+        // per onInterceptTouchEvent.
+        //
+        // Deliberately the whole panel, not just the status-bar inset strip
+        // it used to be. That strip is a ~24dp band the system's own shade
+        // gesture is already competing for, so the launcher's handler almost
+        // never saw the gesture — one of the two reasons swipe-down did
+        // nothing. See DESIGN_NOTES §9 delta 21.
+        if (a == AXIS_V && delta > 0 && view == VIEW_HOME && onStatusBarSwipe != null) {
             onStatusBarSwipe.run();
             axis = -1;
             tracking = false;
@@ -371,6 +406,7 @@ public final class LauncherRoot extends ViewGroup {
             running[slot] = null;
             a.cancel();
         }
+        held[slot] = true;
         if (panel.getVisibility() != VISIBLE) panel.setVisibility(VISIBLE);
     }
 
@@ -393,6 +429,9 @@ public final class LauncherRoot extends ViewGroup {
 
     public void goTo(int next) {
         this.view = next;
+        // The finger is done; from here the settle animators are the only
+        // writers, and applyRest must be free to correct any panel they skip.
+        java.util.Arrays.fill(held, false);
         int w = getWidth(), h = getHeight();
         if (w == 0 || h == 0) return;   // pre-layout; onLayout will snap us
 

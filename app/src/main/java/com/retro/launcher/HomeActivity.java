@@ -2,6 +2,7 @@ package com.retro.launcher;
 
 import android.app.Activity;
 import android.app.AppOpsManager;
+import android.app.admin.DeviceAdminInfo;
 import android.app.admin.DevicePolicyManager;
 import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
@@ -39,6 +40,7 @@ import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PosterizedIcons;
+import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
 import com.retro.launcher.ui.DockView;
@@ -146,6 +148,7 @@ public class HomeActivity extends Activity {
             @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
             @Override public void onEnableDeviceLock() { lockOrRequestAdmin(); }
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
+            @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
@@ -358,8 +361,8 @@ public class HomeActivity extends Activity {
         settings.setPermissionStatus(locationGranted, usageGranted);
         setupScreen.setGranted(usageGranted, locationGranted);
 
-        boolean lockActive = dpm.isAdminActive(lockAdmin);
-        settings.setDeviceLockStatus(lockActive);
+        settings.setDeviceLockStatus(canLockDevice());
+        settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
 
         boolean defaultLauncher = isDefaultLauncher();
         settings.setDefaultLauncherStatus(defaultLauncher);
@@ -371,14 +374,35 @@ public class HomeActivity extends Activity {
                 new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
     }
 
+    /**
+     * True only when we can actually lock: the admin is active *and* it holds
+     * {@code USES_POLICY_FORCE_LOCK}.
+     *
+     * <p>Both halves matter. {@code lockNow()} throws SecurityException for an
+     * active admin that never declared force-lock, which is precisely how the
+     * previous build crashed — {@code device_admin.xml} shipped an empty
+     * {@code <uses-policies/>}. Anyone who activated that admin still has it
+     * active after the update, so "active" alone is not enough to trust.
+     */
+    private boolean canLockDevice() {
+        return dpm.isAdminActive(lockAdmin)
+                && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
+    }
+
     /** Long-press-home-to-lock (DESIGN_NOTES §9 delta 19): lock instantly if
-     *  the admin is already active, otherwise ask Android to show the
-     *  one-time activation dialog. Re-checked on every {@link #onResume()},
+     *  the admin is already active and armed, otherwise ask Android to show
+     *  the one-time activation dialog. Re-checked on every {@link #onResume()},
      *  same as the other permission-adjacent flows in this activity. */
     private void lockOrRequestAdmin() {
-        if (dpm.isAdminActive(lockAdmin)) {
-            dpm.lockNow();
-            return;
+        if (canLockDevice()) {
+            try {
+                dpm.lockNow();
+                return;
+            } catch (SecurityException ignored) {
+                // The policy set disagrees with what the framework will honour
+                // (an OEM restriction, a stale grant across the update that
+                // added force-lock). Fall through and re-ask rather than die.
+            }
         }
         Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
         intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, lockAdmin);
@@ -404,34 +428,83 @@ public class HomeActivity extends Activity {
                 && getPackageName().equals(resolved.activityInfo.packageName);
     }
 
+    /**
+     * Opens the system screen where this app can be picked as the home app.
+     *
+     * <p>Not {@code RoleManager.createRequestRoleIntent(ROLE_HOME)}, which is
+     * what the previous build used and why the button appeared dead: ROLE_HOME
+     * is marked non-requestable in the platform's role definitions, so the
+     * system's request-role activity finishes immediately without ever drawing
+     * a dialog. Third-party launchers have to send the user to the settings
+     * screen instead, on every API level.
+     *
+     * <p>Three tries, narrowest first: the dedicated home-app screen, then the
+     * default-apps list, then Settings itself. OEM builds vary in which of the
+     * first two they ship.
+     */
     private void requestDefaultLauncher() {
-        Intent intent;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            RoleManager rm = (RoleManager) getSystemService(Context.ROLE_SERVICE);
-            intent = rm != null ? rm.createRequestRoleIntent(RoleManager.ROLE_HOME) : null;
-        } else {
-            intent = new Intent(Settings.ACTION_HOME_SETTINGS);
-        }
-        if (intent == null) return;
+        if (startSafely(new Intent(Settings.ACTION_HOME_SETTINGS))) return;
+        if (startSafely(new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))) return;
+        startSafely(new Intent(Settings.ACTION_SETTINGS));
+    }
+
+    /**
+     * Starts {@code intent}, reporting whether it went, so a caller can fall
+     * through to its next candidate.
+     *
+     * <p>Deliberately no {@code resolveActivity} pre-check. Under API 30+
+     * package visibility that call can answer null for an activity that would
+     * have launched perfectly well, and a false negative here means a dead
+     * button — the exact failure this method exists to end. Attempting the
+     * start and catching is both the honest test and what the rest of this
+     * activity already does.
+     */
+    private boolean startSafely(Intent intent) {
         try {
             startActivity(intent);
-        } catch (ActivityNotFoundException ignored) {
-            // No Settings surface to resolve it — nothing else we can do.
+            return true;
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            return false;
         }
     }
 
-    /** DESIGN_NOTES §9 delta 21: undocumented, normal-protection reflection
-     *  call other launchers use to expand the notification shade — see
-     *  the EXPAND_STATUS_BAR permission in the manifest. Any failure here
-     *  (a future OS blocking it, a missing service) makes the swipe a
-     *  silent no-op rather than a crash. */
+    /** Sends the user to Accessibility settings to switch on the shade
+     *  fallback — see {@link ShadeService}. */
+    private void openAccessibilitySettings() {
+        startSafely(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    }
+
+    /**
+     * Swipe-down-opens-the-shade (DESIGN_NOTES §9 delta 21). Two routes, in
+     * order of how little they ask of the user.
+     *
+     * <p>First the reflection into {@code StatusBarManager}, guarded by the
+     * EXPAND_STATUS_BAR permission in the manifest. It needs no setup at all,
+     * and still works on pre-Android-12 and on a number of OEM builds. It is
+     * also a denylisted non-SDK interface, so at this app's targetSdk the
+     * lookup itself throws on a current AOSP device — which is exactly why the
+     * previous build's swipe did nothing, silently.
+     *
+     * <p>Then {@link ShadeService}, the accessibility fallback, which does
+     * work everywhere but only once the user has switched it on. While it is
+     * off this method still ends in a no-op; the Settings row is where that
+     * gets explained and fixed.
+     */
     private void expandStatusBar() {
+        if (expandViaStatusBarManager()) return;
+        ShadeService.expandNotificationShade();
+    }
+
+    private boolean expandViaStatusBarManager() {
         try {
             Object statusBarService = getSystemService("statusbar");
+            if (statusBarService == null) return false;
             Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
             statusBarManager.getMethod("expandNotificationsPanel").invoke(statusBarService);
+            return true;
         } catch (Throwable ignored) {
-            // Best-effort only — see the javadoc above.
+            // Blocked, absent, or refused — fall through to the service.
+            return false;
         }
     }
 

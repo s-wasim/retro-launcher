@@ -46,6 +46,7 @@ public final class SettingsPanel extends FrameLayout {
         void onOpenUsageAccessSettings();
         void onEnableDeviceLock();
         void onSetDefaultLauncher();
+        void onEnableNotificationShade();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -73,6 +74,7 @@ public final class SettingsPanel extends FrameLayout {
     private boolean usageGranted;
     private boolean deviceLockActive;
     private boolean isDefaultLauncher;
+    private boolean shadeServiceEnabled;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -204,6 +206,13 @@ public final class SettingsPanel extends FrameLayout {
     /** DESIGN_NOTES §9 delta 20: whether this app is the default launcher. */
     public void setDefaultLauncherStatus(boolean isDefault) {
         this.isDefaultLauncher = isDefault;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 delta 21: whether the accessibility fallback that opens
+     *  the notification shade is switched on. */
+    public void setNotificationShadeStatus(boolean enabled) {
+        this.shadeServiceEnabled = enabled;
         rebuildPermissionsSection();
     }
 
@@ -594,15 +603,28 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(lockRow, gap);
         permSection.addView(lockRow);
 
-        View defaultRow = permissionRow("DEFAULT LAUNCHER", isDefaultLauncher, "DEFAULT", "SET",
+        View shadeRow = permissionRow("NOTIFICATION SHADE", shadeServiceEnabled, "ON", "ENABLE",
+                () -> { if (permissionListener != null) permissionListener.onEnableNotificationShade(); });
+        addTopMargin(shadeRow, gap);
+        permSection.addView(shadeRow);
+
+        // Always tappable, unlike the rows above: re-picking your home app is
+        // a thing people want to do while already the default, and there is no
+        // harm in opening the screen that shows it.
+        View defaultRow = permissionRow("DEFAULT LAUNCHER", isDefaultLauncher, "DEFAULT", "SET", true,
                 () -> { if (permissionListener != null) permissionListener.onSetDefaultLauncher(); });
         addTopMargin(defaultRow, gap);
         permSection.addView(defaultRow);
 
         TextView caption = new TextView(getContext());
         caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS · "
-                + "DEVICE LOCK NEEDS ADMIN ACCESS. THE LAUNCHER WORKS WITHOUT ANY OF THEM. "
-                + "LONG-PRESS THE HOME SCREEN TO LOCK ONCE ENABLED.");
+                + "DEVICE LOCK NEEDS ADMIN ACCESS. THE LAUNCHER WORKS WITHOUT ANY OF THEM.\n\n"
+                + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
+                + "SWIPE DOWN ON THE HOME SCREEN FOR NOTIFICATIONS. ANDROID BLOCKS THE "
+                + "DIRECT CALL ON RECENT VERSIONS, SO ENABLE NOTIFICATION SHADE ABOVE AND "
+                + "SWITCH RETRO LAUNCHER ON UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY "
+                + "OPENS THE SHADE.\n\n"
+                + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
         caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
@@ -616,13 +638,31 @@ public final class SettingsPanel extends FrameLayout {
     }
 
     /** {@code grantedText}/{@code fixText} generalize this beyond runtime
-     *  permissions — DEVICE LOCK and DEFAULT LAUNCHER read "ON"/"ENABLE" and
-     *  "DEFAULT"/"SET" through the same row rather than "GRANTED"/"FIX". */
+     *  permissions — DEVICE LOCK, NOTIFICATION SHADE and DEFAULT LAUNCHER read
+     *  "ON"/"ENABLE" and "DEFAULT"/"SET" through the same row rather than
+     *  "GRANTED"/"FIX". */
     private View permissionRow(String label, boolean granted,
                                 String grantedText, String fixText, Runnable onFix) {
+        return permissionRow(label, granted, grantedText, fixText, false, onFix);
+    }
+
+    /**
+     * {@code tappableWhenGranted} keeps the action live even once the thing is
+     * done — DEFAULT LAUNCHER wants that, a granted runtime permission does not.
+     *
+     * <p>The whole row carries the click, not just the status word. The status
+     * word alone is four to seven monospace characters, well under the 48dp
+     * minimum target, which made these actions feel broken even where the
+     * intent behind them was sound.
+     */
+    private View permissionRow(String label, boolean granted,
+                                String grantedText, String fixText,
+                                boolean tappableWhenGranted, Runnable onFix) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        int touchPad = Math.round(metrics.cqw(2f));
+        row.setPadding(0, touchPad, 0, touchPad);
 
         TextView labelView = new TextView(getContext());
         labelView.setText(label);
@@ -638,8 +678,12 @@ public final class SettingsPanel extends FrameLayout {
         status.setTextColor(granted ? palette.p : palette.a);
         status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
-        if (!granted) status.setOnClickListener(v -> onFix.run());
         row.addView(status);
+
+        // Deliberately not marked no-swipe: LauncherRoot never intercepts a
+        // tap, only a drag past 12dp, so the click is safe, and leaving the
+        // row open means a sideways swipe across it still closes the panel.
+        if (!granted || tappableWhenGranted) row.setOnClickListener(v -> onFix.run());
 
         return row;
     }

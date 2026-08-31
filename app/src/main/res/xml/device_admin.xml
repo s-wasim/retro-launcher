@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No policies requested — every active device admin can call lockNow(),
-     which is all the long-press-to-lock gesture needs. -->
+<!--
+  force-lock is not optional. DevicePolicyManager#lockNow() throws
+  SecurityException unless the calling admin declared
+  DeviceAdminInfo.USES_POLICY_FORCE_LOCK, so an empty <uses-policies/> here
+  meant every long-press-to-lock crashed the launcher the moment the admin
+  was active. It is also the *only* policy we ask for: no wipe, no password
+  quality, no camera control.
+-->
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-policies />
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
 </device-admin>
