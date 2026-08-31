@@ -21,6 +21,7 @@ the rest of the document disagree, this section wins.
 | 4 | §1 "Zero third-party dependencies — the `dependencies {}` block should be empty" | `testImplementation 'junit:junit:4.13.2'` permitted. **The shipped APK still has zero dependencies.** | `testImplementation` is compile-time-only for local JVM tests and never enters the APK. Without it nothing in the project is unit-testable, and roughly 40% of this codebase is pure logic — sky interpolation, palette thresholds, the date tokeniser, weather parsing, usage aggregation — where a silent off-by-one shows up as a wrong colour at 04:36 and nowhere else. |
 | 5 | §3 "`git init` only — do not add a remote, do not push" | Applied to scaffolding, now complete. A remote is required for CI. | The owner wires it up when ready. |
 | 6 | §8 open questions | All resolved — see `design/DESIGN_NOTES.md` §9. | Answered by the owner during design. |
+| 7 | Row 1 above: "Exactly three permitted" | **Four**: adds `EXPAND_STATUS_BAR` (normal protection, no runtime prompt). | Status-bar swipe (`design/DESIGN_NOTES.md` §9 delta 21), requested 2026-08-31. `BIND_DEVICE_ADMIN` for the long-press-lock feature (delta 19) is **not** a fourth — it protects the `LockAdminReceiver`, an app never declares it as a `<uses-permission>` for itself. |
 
 Unchanged and still binding: **Java only, no Kotlin. No AndroidX, no Compose,
 no Material. `ListView`, not `RecyclerView`. `minSdk 26`, `targetSdk 34`.

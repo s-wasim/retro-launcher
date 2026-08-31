@@ -5,8 +5,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.graphics.SurfaceTexture;
+import android.view.TextureView;
 
 import com.retro.launcher.core.MoonPhase;
 import com.retro.launcher.core.SkyRenderer;
@@ -18,11 +18,22 @@ import java.util.Calendar;
  * nearest-neighbour upscaled to fill the view. See DESIGN_NOTES §2b.
  *
  * A dedicated render thread keeps the per-pixel work off the UI thread. It is
- * started in surfaceCreated, stopped by a volatile flag in surfaceDestroyed,
- * and gated by pause()/resume() so it never runs while another app is
- * foreground.
+ * started in onSurfaceTextureAvailable, stopped by a volatile flag in
+ * onSurfaceTextureDestroyed, and gated by pause()/resume() so it never runs
+ * while another app is foreground.
+ *
+ * {@link TextureView} rather than {@code SurfaceView}: a SurfaceView's
+ * pixels are composited by SurfaceFlinger as an independent hole-punch
+ * layer, outside the RenderThread pipeline that draws and animates the
+ * panels sliding above it. Under a slow panel drag the two compositors can
+ * fall a frame out of lockstep, briefly showing a stale hole-punch frame —
+ * the panel's own last opaque content — bleeding through behind the live,
+ * correctly-composited panel: the "ghost panel" artifact. A TextureView
+ * composites as a normal GPU texture inside the same RenderThread pipeline
+ * as every other view, so there is only one compositor and no desync is
+ * possible. See docs/superpowers/specs/2026-08-31-panel-fixes-and-launcher-controls-design.md §1.
  */
-public final class SkyView extends SurfaceView implements SurfaceHolder.Callback {
+public final class SkyView extends TextureView implements TextureView.SurfaceTextureListener {
 
     private static final int BUF_W = 108;
     private static final long FRAME_BUDGET_MS = 33L; // ~30fps
@@ -49,7 +60,7 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
     public SkyView(Context context) {
         super(context);
         paint.setFilterBitmap(false);
-        getHolder().addCallback(this);
+        setSurfaceTextureListener(this);
     }
 
     public void setWeather(float w) { this.weather = w; }
@@ -63,12 +74,17 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
      *  {@code Float.NaN} means "no fix" and reads as the northern view. */
     public void setLatitude(float degrees) { this.latitude = degrees; }
 
-    @Override public void surfaceCreated(SurfaceHolder holder) {
+    @Override public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         surfaceReady = true;
+        resize(width, height);
         startThreadIfNeeded();
     }
 
-    @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
+    @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+        resize(width, height);
+    }
+
+    private void resize(int w, int h) {
         int bh = Math.round(BUF_W * (float) h / Math.max(1, w));
         bh = Math.max(96, Math.min(320, bh));
         if (renderer == null || bh != bufH) {
@@ -79,9 +95,14 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
         }
     }
 
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {
+    @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
         surfaceReady = false;
         stopThread();
+        return true; // we're done with the SurfaceTexture; safe to release
+    }
+
+    @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+        // Fires after every unlockCanvasAndPost — nothing to do here.
     }
 
     public void pause() { stopThread(); }
@@ -133,16 +154,15 @@ public final class SkyView extends SurfaceView implements SurfaceHolder.Callback
         r.render(buf, hour, weather, moonPhase, seconds);
         bmp.setPixels(buf, 0, BUF_W, 0, 0, BUF_W, bufH);
 
-        SurfaceHolder holder = getHolder();
         Canvas canvas = null;
         try {
-            canvas = holder.lockCanvas();
+            canvas = lockCanvas();
             if (canvas == null) return;
             dst.set(0, 0, canvas.getWidth(), canvas.getHeight());
             canvas.drawBitmap(bmp, null, dst, paint);
         } finally {
             if (canvas != null) {
-                try { holder.unlockCanvasAndPost(canvas); } catch (IllegalArgumentException ignored) { /* surface gone */ }
+                try { unlockCanvasAndPost(canvas); } catch (IllegalArgumentException ignored) { /* surface gone */ }
             }
         }
     }

@@ -129,8 +129,13 @@ public final class DrawerPanel extends FrameLayout {
             Integer pos = adapter.positionForLetter(letter);
             if (pos != null) listView.setSelection(pos);
         });
-        row.addView(scrubber, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams scrubberLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        // The scrubber measures itself shorter than the row on purpose (see
+        // AlphaScrubber.LENGTH_FRACTION); center it in the remaining space
+        // rather than letting it hug the top.
+        scrubberLp.gravity = Gravity.CENTER_VERTICAL;
+        row.addView(scrubber, scrubberLp);
 
         column.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));

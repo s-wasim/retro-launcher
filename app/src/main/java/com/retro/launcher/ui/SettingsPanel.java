@@ -44,6 +44,8 @@ public final class SettingsPanel extends FrameLayout {
     public interface PermissionActionListener {
         void onRequestLocation();
         void onOpenUsageAccessSettings();
+        void onEnableDeviceLock();
+        void onSetDefaultLauncher();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -69,6 +71,8 @@ public final class SettingsPanel extends FrameLayout {
     private List<String> dockEntries = new ArrayList<>();
     private boolean locationGranted;
     private boolean usageGranted;
+    private boolean deviceLockActive;
+    private boolean isDefaultLauncher;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -188,6 +192,18 @@ public final class SettingsPanel extends FrameLayout {
     public void setPermissionStatus(boolean locationGranted, boolean usageGranted) {
         this.locationGranted = locationGranted;
         this.usageGranted = usageGranted;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 delta 19: whether long-press-home-to-lock is armed. */
+    public void setDeviceLockStatus(boolean active) {
+        this.deviceLockActive = active;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 delta 20: whether this app is the default launcher. */
+    public void setDefaultLauncherStatus(boolean isDefault) {
+        this.isDefaultLauncher = isDefault;
         rebuildPermissionsSection();
     }
 
@@ -573,9 +589,20 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(usageRow, gap);
         permSection.addView(usageRow);
 
+        View lockRow = permissionRow("DEVICE LOCK", deviceLockActive, "ON", "ENABLE",
+                () -> { if (permissionListener != null) permissionListener.onEnableDeviceLock(); });
+        addTopMargin(lockRow, gap);
+        permSection.addView(lockRow);
+
+        View defaultRow = permissionRow("DEFAULT LAUNCHER", isDefaultLauncher, "DEFAULT", "SET",
+                () -> { if (permissionListener != null) permissionListener.onSetDefaultLauncher(); });
+        addTopMargin(defaultRow, gap);
+        permSection.addView(defaultRow);
+
         TextView caption = new TextView(getContext());
-        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
-                + "THE LAUNCHER WORKS WITHOUT EITHER.");
+        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS · "
+                + "DEVICE LOCK NEEDS ADMIN ACCESS. THE LAUNCHER WORKS WITHOUT ANY OF THEM. "
+                + "LONG-PRESS THE HOME SCREEN TO LOCK ONCE ENABLED.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
         caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
@@ -585,6 +612,14 @@ public final class SettingsPanel extends FrameLayout {
     }
 
     private View permissionRow(String label, boolean granted, Runnable onFix) {
+        return permissionRow(label, granted, "GRANTED", "FIX", onFix);
+    }
+
+    /** {@code grantedText}/{@code fixText} generalize this beyond runtime
+     *  permissions — DEVICE LOCK and DEFAULT LAUNCHER read "ON"/"ENABLE" and
+     *  "DEFAULT"/"SET" through the same row rather than "GRANTED"/"FIX". */
+    private View permissionRow(String label, boolean granted,
+                                String grantedText, String fixText, Runnable onFix) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -598,7 +633,7 @@ public final class SettingsPanel extends FrameLayout {
         row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView status = new TextView(getContext());
-        status.setText(granted ? "GRANTED" : "FIX");
+        status.setText(granted ? grantedText : fixText);
         status.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         status.setTextColor(granted ? palette.p : palette.a);
         status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,

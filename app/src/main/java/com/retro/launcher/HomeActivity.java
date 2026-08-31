@@ -2,13 +2,18 @@ package com.retro.launcher;
 
 import android.app.Activity;
 import android.app.AppOpsManager;
+import android.app.admin.DevicePolicyManager;
+import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,6 +23,7 @@ import android.util.DisplayMetrics;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import com.retro.launcher.admin.LockAdminReceiver;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
@@ -73,6 +79,8 @@ public class HomeActivity extends Activity {
     private WeatherRepository weatherRepository;
     private UsageRepository usageRepository;
     private Palette palette;
+    private DevicePolicyManager dpm;
+    private ComponentName lockAdmin;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -99,6 +107,8 @@ public class HomeActivity extends Activity {
         prefs = new Prefs(this);
         weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
+        dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        lockAdmin = new ComponentName(this, LockAdminReceiver.class);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
@@ -134,6 +144,8 @@ public class HomeActivity extends Activity {
         settings.setPermissionActionListener(new SettingsPanel.PermissionActionListener() {
             @Override public void onRequestLocation() { requestLocation(); }
             @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
+            @Override public void onEnableDeviceLock() { lockOrRequestAdmin(); }
+            @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
@@ -158,6 +170,10 @@ public class HomeActivity extends Activity {
             search.setPalette(palette);
             search.open();
         });
+        root.setLongPressListener(this::lockOrRequestAdmin);
+        root.setOnStatusBarSwipeListener(this::expandStatusBar);
+
+        home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
 
         setupScreen = new SetupScreen(this, metrics);
         setupScreen.setListener(new SetupScreen.Listener() {
@@ -341,11 +357,82 @@ public class HomeActivity extends Activity {
         boolean locationGranted = hasLocationPermission();
         settings.setPermissionStatus(locationGranted, usageGranted);
         setupScreen.setGranted(usageGranted, locationGranted);
+
+        boolean lockActive = dpm.isAdminActive(lockAdmin);
+        settings.setDeviceLockStatus(lockActive);
+
+        boolean defaultLauncher = isDefaultLauncher();
+        settings.setDefaultLauncherStatus(defaultLauncher);
+        home.setDefaultLauncherPromptVisible(!defaultLauncher);
     }
 
     private void requestLocation() {
         requestPermissions(
                 new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+    }
+
+    /** Long-press-home-to-lock (DESIGN_NOTES §9 delta 19): lock instantly if
+     *  the admin is already active, otherwise ask Android to show the
+     *  one-time activation dialog. Re-checked on every {@link #onResume()},
+     *  same as the other permission-adjacent flows in this activity. */
+    private void lockOrRequestAdmin() {
+        if (dpm.isAdminActive(lockAdmin)) {
+            dpm.lockNow();
+            return;
+        }
+        Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+        intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, lockAdmin);
+        intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Lets long-pressing the home screen lock your device instantly.");
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // No admin-activation screen to resolve it — nothing else we can do.
+        }
+    }
+
+    /** DESIGN_NOTES §9 delta 20: RoleManager on 29+, a PackageManager
+     *  comparison below that — API 26's floor predates RoleManager. */
+    private boolean isDefaultLauncher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            RoleManager rm = (RoleManager) getSystemService(Context.ROLE_SERVICE);
+            return rm != null && rm.isRoleHeld(RoleManager.ROLE_HOME);
+        }
+        Intent homeIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+        ResolveInfo resolved = getPackageManager().resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
+        return resolved != null && resolved.activityInfo != null
+                && getPackageName().equals(resolved.activityInfo.packageName);
+    }
+
+    private void requestDefaultLauncher() {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            RoleManager rm = (RoleManager) getSystemService(Context.ROLE_SERVICE);
+            intent = rm != null ? rm.createRequestRoleIntent(RoleManager.ROLE_HOME) : null;
+        } else {
+            intent = new Intent(Settings.ACTION_HOME_SETTINGS);
+        }
+        if (intent == null) return;
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // No Settings surface to resolve it — nothing else we can do.
+        }
+    }
+
+    /** DESIGN_NOTES §9 delta 21: undocumented, normal-protection reflection
+     *  call other launchers use to expand the notification shade — see
+     *  the EXPAND_STATUS_BAR permission in the manifest. Any failure here
+     *  (a future OS blocking it, a missing service) makes the swipe a
+     *  silent no-op rather than a crash. */
+    private void expandStatusBar() {
+        try {
+            Object statusBarService = getSystemService("statusbar");
+            Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
+            statusBarManager.getMethod("expandNotificationsPanel").invoke(statusBarService);
+        } catch (Throwable ignored) {
+            // Best-effort only — see the javadoc above.
+        }
     }
 
     /** Pulls fresh device usage data and drives the panel, the over-limit

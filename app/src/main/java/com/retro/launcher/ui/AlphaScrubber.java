@@ -17,8 +17,19 @@ import java.util.Set;
  * Fixed 7cqw right rail: all 26 letters, present ones at full opacity, absent
  * ones dimmed. Press-and-drag jumps the drawer list to that letter's header.
  * See DESIGN_NOTES §7b.
+ *
+ * Measures shorter than the row it sits in ({@link #LENGTH_FRACTION}) and is
+ * centered vertically ({@code DrawerPanel}'s scrubber LayoutParams) rather
+ * than stretched edge-to-edge: a right-edge rail spanning the full height
+ * runs its first and last letters into the corners, which a circular
+ * display clips (A/Z were getting cropped) — see DESIGN_NOTES §9 delta 22.
  */
 public final class AlphaScrubber extends View {
+
+    /** Fraction of the row's available height the rail actually occupies —
+     *  leaves clearance top and bottom so the end letters clear a circular
+     *  display's curvature, and stays centered via the parent LayoutParams. */
+    private static final float LENGTH_FRACTION = 0.86f;
 
     public interface OnLetterListener { void onLetter(char letter); }
 
@@ -42,7 +53,8 @@ public final class AlphaScrubber extends View {
 
     @Override protected void onMeasure(int wSpec, int hSpec) {
         int width = Math.round(metrics.cqw(8.5f));
-        setMeasuredDimension(width, MeasureSpec.getSize(hSpec));
+        int height = Math.round(MeasureSpec.getSize(hSpec) * LENGTH_FRACTION);
+        setMeasuredDimension(width, height);
     }
 
     @Override protected void onDraw(Canvas canvas) {

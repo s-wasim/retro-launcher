@@ -81,6 +81,8 @@ public final class LauncherRoot extends ViewGroup {
     private final PathInterpolator settle = new PathInterpolator(.2f, .7f, .2f, 1f);
     private final GestureDetector doubleTap;
     private Runnable onDoubleTap;
+    private Runnable onLongPress;
+    private Runnable onStatusBarSwipe;
 
     public LauncherRoot(Context c) {
         super(c);
@@ -94,6 +96,12 @@ public final class LauncherRoot extends ViewGroup {
                             return true;
                         }
                         return false;
+                    }
+
+                    @Override public void onLongPress(MotionEvent e) {
+                        if (view == VIEW_HOME && onLongPress != null) {
+                            onLongPress.run();
+                        }
                     }
                 });
     }
@@ -128,6 +136,13 @@ public final class LauncherRoot extends ViewGroup {
     }
 
     public void setDoubleTapListener(Runnable r) { this.onDoubleTap = r; }
+    public void setLongPressListener(Runnable r) { this.onLongPress = r; }
+
+    /** Fired instead of a drag when a downward swipe starts inside the top
+     *  system-bar inset on Home — see {@link #lockAxis(float, float)}. A
+     *  swipe down on Home is otherwise inert ({@link #moves}), so this
+     *  claims no gesture the panel model would otherwise use. */
+    public void setOnStatusBarSwipeListener(Runnable r) { this.onStatusBarSwipe = r; }
 
     public void setPanels(View home, View settings, View drawer, View time) {
         this.home = home; this.settings = settings;
@@ -171,6 +186,7 @@ public final class LauncherRoot extends ViewGroup {
     private static void rest(View v, boolean shown, float offX, float offY) {
         v.setTranslationX(shown ? 0 : offX);
         v.setTranslationY(shown ? 0 : offY);
+        v.setAlpha(shown ? 1f : 0f);
         v.setVisibility(shown ? VISIBLE : INVISIBLE);
     }
 
@@ -250,6 +266,18 @@ public final class LauncherRoot extends ViewGroup {
     private void lockAxis(float dx, float dy) {
         int a = Math.abs(dx) > Math.abs(dy) ? AXIS_H : AXIS_V;
         float delta = a == AXIS_H ? dx : dy;
+        // A swipe down starting inside the top system-bar inset, on Home,
+        // is otherwise inert (moves() below returns false for it) — claim
+        // it for the status-bar shade instead rather than leaving it as a
+        // no-op drag. Anything starting over a no-swipe subtree (the clock)
+        // never reaches lockAxis in the first place, per onInterceptTouchEvent.
+        if (a == AXIS_V && delta > 0 && view == VIEW_HOME && onStatusBarSwipe != null
+                && downY <= Insets.systemTop(this)) {
+            onStatusBarSwipe.run();
+            axis = -1;
+            tracking = false;
+            return;
+        }
         if (!moves(a, delta) || ownedByChild(this, downX, downY, a, delta)) {
             axis = -1;
             tracking = false;
@@ -287,24 +315,48 @@ public final class LauncherRoot extends ViewGroup {
             if (view == VIEW_HOME) {
                 seize(VIEW_SETTINGS, settings);
                 seize(VIEW_DRAWER, drawer);
-                settings.setTranslationX(clamp(dx, 0, w) - w);
-                drawer.setTranslationX(w + clamp(dx, -w, 0));
+                float sx = clamp(dx, 0, w) - w;
+                settings.setTranslationX(sx);
+                settings.setAlpha(reveal(sx, w));
+                float dxr = w + clamp(dx, -w, 0);
+                drawer.setTranslationX(dxr);
+                drawer.setAlpha(reveal(dxr, w));
             } else if (view == VIEW_SETTINGS) {
                 seize(VIEW_SETTINGS, settings);
-                settings.setTranslationX(clamp(dx, -w, 0));
+                float sx = clamp(dx, -w, 0);
+                settings.setTranslationX(sx);
+                settings.setAlpha(reveal(sx, w));
             } else if (view == VIEW_DRAWER) {
                 seize(VIEW_DRAWER, drawer);
-                drawer.setTranslationX(clamp(dx, 0, w));
+                float dxr = clamp(dx, 0, w);
+                drawer.setTranslationX(dxr);
+                drawer.setAlpha(reveal(dxr, w));
             }
         } else if (axis == AXIS_V) {
             if (view == VIEW_HOME) {
                 seize(VIEW_TIME, time);
-                time.setTranslationY(h + clamp(dy, -h, 0));
+                float ty = h + clamp(dy, -h, 0);
+                time.setTranslationY(ty);
+                time.setAlpha(reveal(ty, h));
             } else if (view == VIEW_TIME) {
                 seize(VIEW_TIME, time);
-                time.setTranslationY(clamp(dy, 0, h));
+                float ty = clamp(dy, 0, h);
+                time.setTranslationY(ty);
+                time.setAlpha(reveal(ty, h));
             }
         }
+    }
+
+    /**
+     * Fraction of a panel visible at this translation, given its rest
+     * offsets are always 0 (fully open) and ±extent (fully closed) — see
+     * DESIGN_NOTES §9 delta 18. Drives the fade-in-as-dragged effect so a
+     * panel's opacity tracks how far it has been pulled into view at any
+     * drag speed, rather than snapping between fully shown and hidden.
+     */
+    private static float reveal(float translation, float extent) {
+        if (extent <= 0f) return 1f;
+        return clamp(1f - Math.abs(translation) / extent, 0f, 1f);
     }
 
     /**
@@ -368,6 +420,7 @@ public final class LauncherRoot extends ViewGroup {
 
         if (panel.getTranslationX() == tx && panel.getTranslationY() == ty) {
             panel.setVisibility(shown ? VISIBLE : INVISIBLE);
+            panel.setAlpha(shown ? 1f : 0f);
             return;
         }
 
@@ -383,6 +436,7 @@ public final class LauncherRoot extends ViewGroup {
         final boolean[] cancelled = {false};
         ViewPropertyAnimator a = panel.animate()
                 .translationX(tx).translationY(ty)
+                .alpha(shown ? 1f : 0f)
                 .setDuration(SETTLE_MS)
                 .setInterpolator(settle)
                 .setListener(new AnimatorListenerAdapter() {
