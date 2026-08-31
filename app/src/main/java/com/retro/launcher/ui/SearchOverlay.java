@@ -7,13 +7,11 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.text.Editable;
-import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -49,7 +47,7 @@ public final class SearchOverlay extends FrameLayout {
     private final AppRepository apps;
 
     private final LinearLayout column;
-    private final EditText field;
+    private final PixelField field;
     private final LinearLayout results;
 
     private final int columnPad;
@@ -78,16 +76,12 @@ public final class SearchOverlay extends FrameLayout {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(columnPad, columnPad, columnPad, columnPad);
 
-        field = new EditText(context);
-        field.setSingleLine(true);
+        field = new PixelField(context, metrics,
+                DrawerPanel.SIZE_TITLE_CQW, DrawerPanel.SIZE_TITLE_MIN);
         field.setHint("SEARCH");
-        field.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        field.setAllCaps(false);
-        field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        field.setBackground(null);
-        field.setTextSize(TypedValue.COMPLEX_UNIT_PX,
-                metrics.textPx(DrawerPanel.SIZE_TITLE_CQW, DrawerPanel.SIZE_TITLE_MIN));
+        // No all-caps filter here, unlike the category field: a search should
+        // match what the user actually typed.
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -165,8 +159,7 @@ public final class SearchOverlay extends FrameLayout {
     public void setPalette(Palette p) {
         this.palette = p;
         setBackgroundColor(p.veil());
-        field.setTextColor(p.ink);
-        field.setHintTextColor(p.a);
+        field.setPalette(p);
         rebuild();
     }
 
