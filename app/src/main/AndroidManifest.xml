@@ -62,12 +62,33 @@
          nothing at all rather than fail. See DESIGN_NOTES §9 delta 26. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
+    <!-- enableOnBackInvokedCallback: from targetSdk 36 the platform stops
+         calling Activity#onBackPressed, so the callback HomeActivity
+         registers is the only thing keeping Back from closing the launcher.
+         Opting in explicitly rather than relying on the target-level default
+         keeps that legible. -->
     <application
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/AppTheme">
 
+        <!-- screenOrientation is kept, but it is a request, not a guarantee:
+             API 36 ignores it on displays 600dp and wider. The layout is
+             sized in cqw off the screen's own width, so it adapts.
+
+             configChanges deliberately lists only the changes that cannot
+             alter the layout's dimensions. Every size-affecting one —
+             orientation, screenSize, screenLayout, density, fontScale — is
+             left off so the activity recreates: Metrics is built once from
+             displayMetrics in onCreate and every padding, text size and icon
+             in the app is a fixed pixel value derived from it at construction
+             time, so a resize has to rebuild the view tree, and recreation is
+             the cheapest correct way to do that. Recreation is safe here by
+             construction — stateNotNeeded, no saved state read, the launcher
+             always reopens on home, and the receiver is registered in
+             onCreate against onDestroy. -->
         <activity
             android:name=".HomeActivity"
             android:exported="true"

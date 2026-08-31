@@ -57,6 +57,7 @@ public final class SettingsPanel extends FrameLayout {
 
     private final LinearLayout header;
     private final int headerPadTop;
+    private final ScrollView scroll;
     private final LinearLayout paletteSection;
     private final LinearLayout clockSection;
     private final LinearLayout tempSection;
@@ -91,7 +92,7 @@ public final class SettingsPanel extends FrameLayout {
         column.addView(header = buildHeader());
         headerPadTop = header.getPaddingTop();
 
-        ScrollView scroll = new ScrollView(context);
+        scroll = new ScrollView(context);
         // Vertical only: a swipe left across the settings body closes the
         // panel. The scrubber and toggles inside still claim their own drags.
         LauncherRoot.setVerticalScroller(scroll);
@@ -167,6 +168,8 @@ public final class SettingsPanel extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // Otherwise the bottom of the body rests under the gesture pill.
+            com.retro.launcher.util.Insets.padScrollerForSystemBars(scroll, insets, 0);
         }
         return super.onApplyWindowInsets(insets);
     }

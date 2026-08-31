@@ -3,6 +3,13 @@
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowNoTitle">true</item>
+        <!-- These three are deprecated and inert from API 35, where
+             edge-to-edge is compulsory and the bars are transparent whatever
+             a theme says. They stay because minSdk is 26: on API 26–34 they
+             are the only way to ask for the transparent bars this launcher
+             has always drawn behind, and dropping them there would put an
+             opaque black status bar over the wallpaper. Inert on new devices,
+             load-bearing on old ones. -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>

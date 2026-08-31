@@ -27,6 +27,7 @@ public final class BottomSheet extends FrameLayout {
     private final TextView titleView;
     private final LinearLayout header;
     private final LinearLayout rows;
+    private final LinearLayout panel;
     private final LinearLayout addRow;
     private final PixelField addField;
     private final GradientDrawable addButtonBg;
@@ -45,7 +46,7 @@ public final class BottomSheet extends FrameLayout {
         scrim.setOnClickListener(v -> close());
         addView(scrim, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
-        LinearLayout panel = new LinearLayout(context);
+        panel = new LinearLayout(context);
         panel.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable panelBg = new GradientDrawable();
         panel.setBackground(panelBg);
@@ -144,6 +145,9 @@ public final class BottomSheet extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // The sheet is anchored to the bottom edge, so without this the
+            // ADD row and the last list row sit under the gesture pill.
+            panel.setPadding(sys.left, panel.getPaddingTop(), sys.right, sys.bottom);
         }
         return super.onApplyWindowInsets(insets);
     }

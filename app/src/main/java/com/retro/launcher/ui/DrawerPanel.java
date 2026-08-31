@@ -23,6 +23,7 @@ import com.retro.launcher.data.Prefs;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.theme.Tint;
 import com.retro.launcher.util.AppActions;
+import com.retro.launcher.util.Insets;
 import com.retro.launcher.util.Launch;
 
 import java.util.ArrayList;
@@ -182,6 +183,8 @@ public final class DrawerPanel extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // Otherwise the last app in the list rests under the gesture pill.
+            Insets.padScrollerForSystemBars(listView, insets, 0);
         }
         return super.onApplyWindowInsets(insets);
     }

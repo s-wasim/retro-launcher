@@ -37,6 +37,7 @@ public final class ScreenTimePanel extends FrameLayout {
 
     private final LinearLayout header;
     private final int headerPadTop;
+    private final ScrollView scroll;
     private final TextView todayTotal;
     private final CoffeeButton coffee;
     private final TextView pickupsLabel;
@@ -73,7 +74,7 @@ public final class ScreenTimePanel extends FrameLayout {
         column.addView(header = buildHeader());
         headerPadTop = header.getPaddingTop();
 
-        ScrollView scroll = new ScrollView(context);
+        scroll = new ScrollView(context);
         // Vertical only, and only while there is still content above: once the
         // list is at the top, a downward drag pulls the panel shut instead —
         // the reverse of the swipe up that opened it.
@@ -237,6 +238,8 @@ public final class ScreenTimePanel extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // Otherwise the bottom of the body rests under the gesture pill.
+            com.retro.launcher.util.Insets.padScrollerForSystemBars(scroll, insets, 0);
         }
         return super.onApplyWindowInsets(insets);
     }

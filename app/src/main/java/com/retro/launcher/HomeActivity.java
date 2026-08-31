@@ -22,6 +22,8 @@ import android.os.Process;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 
 import com.retro.launcher.admin.LockAdminReceiver;
@@ -84,6 +86,8 @@ public class HomeActivity extends Activity {
     private Palette palette;
     private DevicePolicyManager dpm;
     private ComponentName lockAdmin;
+    /** API 33+ only; null below that, where onBackPressed still runs. */
+    private OnBackInvokedCallback backCallback;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -209,7 +213,24 @@ public class HomeActivity extends Activity {
         hintOverlay.setVisibility(View.GONE);
         setupScreen.setVisibility(prefs.hintShown() ? View.GONE : View.VISIBLE);
 
-        registerReceiver(packageReceiver, packageChangeFilter());
+        registerPackageReceiver();
+        registerBackCallback();
+    }
+
+    /**
+     * The filter carries only {@code ACTION_PACKAGE_ADDED} and
+     * {@code ACTION_PACKAGE_REMOVED}, both protected system broadcasts, so
+     * targetSdk 34+ does not demand an export flag here. Passing
+     * {@code RECEIVER_NOT_EXPORTED} anyway on API 33+ says what is meant
+     * rather than relying on that exemption: nothing outside the system has
+     * any business reaching this receiver.
+     */
+    private void registerPackageReceiver() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageReceiver, packageChangeFilter(), RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(packageReceiver, packageChangeFilter());
+        }
     }
 
     private void openUsageAccessSettings() {
@@ -275,11 +296,29 @@ public class HomeActivity extends Activity {
         }
     }
 
+    /**
+     * Lay out behind the system bars.
+     *
+     * The launcher has always drawn fullscreen, so nothing about the
+     * *intent* changed here — only the API that expresses it. The
+     * {@code SYSTEM_UI_FLAG_*} route has been deprecated since API 30 and is
+     * an outright no-op from 35, where edge-to-edge is compulsory and the
+     * decor no longer fits itself to the bars for you. Below 30 the flags are
+     * still the only way to say it.
+     *
+     * Either way the six panels keep receiving the insets through their own
+     * {@code onApplyWindowInsets} overrides, which is what actually keeps
+     * content out from under the status bar and the gesture pill.
+     */
     private void goEdgeToEdge() {
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
     }
 
     /** Current time as a decimal hour, the unit every time-driven system uses. */
@@ -593,15 +632,46 @@ public class HomeActivity extends Activity {
     @Override protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(packageReceiver);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
+        }
     }
 
+    /**
+     * Only the configuration changes that cannot alter the layout are handled
+     * here; see the {@code configChanges} list in the manifest for why the
+     * ones that can are deliberately left to recreate the activity.
+     */
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         refreshPalette();
     }
 
-    /** Back must never leave the home screen. */
+    /**
+     * Predictive back, API 33+.
+     *
+     * At targetSdk 36 the platform stops calling {@link #onBackPressed()}
+     * altogether, so without this the override below would go quietly dead
+     * and back would start closing the launcher — the one thing a home screen
+     * must never do. Registered for the activity's whole life at
+     * {@code PRIORITY_DEFAULT}, which also means the system never runs its
+     * "swipe back to leave the app" animation here; there is nothing behind a
+     * launcher to go back to.
+     */
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        backCallback = this::handleBack;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
+    }
+
+    /** Back must never leave the home screen. The pre-33 path. */
+    @Deprecated
     @Override public void onBackPressed() {
+        handleBack();
+    }
+
+    private void handleBack() {
         if (search.isOpen()) {
             search.close();
         } else if (sheet.isOpen()) {
