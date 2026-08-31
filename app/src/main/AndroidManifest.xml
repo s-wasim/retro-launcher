@@ -77,11 +77,13 @@
             </intent-filter>
         </receiver>
 
-        <!-- Opt-in fallback for swipe-down-opens-the-shade. Off until the
-             user enables it in Accessibility settings; the swipe is a silent
-             no-op until then. Reads nothing — see ShadeService's javadoc and
-             DESIGN_NOTES §9 delta 21. android:permission is what makes this
-             an accessibility service; only the system can bind it. -->
+        <!-- Opt-in, and the route for two gestures: swipe-down-opens-the-shade
+             and long-press-locks-the-screen. Off until the user enables it in
+             Accessibility settings; the shade swipe is a silent no-op until
+             then and the long press falls back to the device admin. Reads
+             nothing — see ShadeService's javadoc and DESIGN_NOTES §9 deltas 21
+             and 25. android:permission is what makes this an accessibility
+             service; only the system can bind it. -->
         <service
             android:name=".shade.ShadeService"
             android:exported="true"

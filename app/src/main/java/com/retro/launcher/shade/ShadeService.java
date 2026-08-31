@@ -4,14 +4,26 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ComponentName;
 import android.content.Context;
+import android.os.Build;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
+
+import com.retro.launcher.core.LockRoute;
 
 import java.util.List;
 
 /**
- * The only reliable way a third-party launcher can open the notification
- * shade on a modern Android — see DESIGN_NOTES §9 delta 21.
+ * The connected {@link AccessibilityService} the launcher performs global
+ * actions through: opening the notification shade (DESIGN_NOTES §9 delta 21)
+ * and locking the screen (delta 25).
+ *
+ * <p>The name is narrower than the job. It stays that way deliberately: the
+ * enabled-services setting stores this class's flattened component name, so
+ * renaming the class would silently switch the service off for everyone who
+ * had already enabled it.
+ *
+ * <p>Opening the shade is why it was written, and that half is unchanged —
+ * the notes below are about it.
  *
  * <p>The documented-looking route, reflecting into
  * {@code StatusBarManager#expandNotificationsPanel()}, is a non-SDK interface
@@ -71,6 +83,38 @@ public final class ShadeService extends AccessibilityService {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /**
+     * Locks the screen the way the power button does, leaving the fingerprint
+     * reader able to unlock. Returns false when the service is off, the
+     * platform is too old for the action, or the framework refuses it, so the
+     * caller can fall back to the device admin.
+     *
+     * <p>This exists because the device-admin route cannot do it. A
+     * {@code DevicePolicyManager#lockNow()} raises the strong-auth-required
+     * flag on the user, and Android then rejects every biometric until a PIN,
+     * pattern or password has been entered — see {@link LockRoute}.
+     */
+    public static boolean lockScreen() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
+        ShadeService s = instance;
+        if (s == null) return false;
+        try {
+            return s.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether {@link #lockScreen()} has any chance of working. Mirrors
+     * {@link #isEnabled(Context)}'s reason for asking the framework rather
+     * than the cached instance: the Settings row has to be right the moment we
+     * come back from Accessibility settings.
+     */
+    public static boolean canLockScreen(Context context) {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isEnabled(context);
     }
 
     /**

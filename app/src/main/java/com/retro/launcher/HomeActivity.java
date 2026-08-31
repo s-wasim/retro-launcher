@@ -25,6 +25,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 
 import com.retro.launcher.admin.LockAdminReceiver;
+import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
@@ -146,7 +147,7 @@ public class HomeActivity extends Activity {
         settings.setPermissionActionListener(new SettingsPanel.PermissionActionListener() {
             @Override public void onRequestLocation() { requestLocation(); }
             @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
-            @Override public void onEnableDeviceLock() { lockOrRequestAdmin(); }
+            @Override public void onEnableDeviceLock() { requestLockCapability(); }
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
             @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
         });
@@ -173,7 +174,7 @@ public class HomeActivity extends Activity {
             search.setPalette(palette);
             search.open();
         });
-        root.setLongPressListener(this::lockOrRequestAdmin);
+        root.setLongPressListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
 
         home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
@@ -361,7 +362,7 @@ public class HomeActivity extends Activity {
         settings.setPermissionStatus(locationGranted, usageGranted);
         setupScreen.setGranted(usageGranted, locationGranted);
 
-        settings.setDeviceLockStatus(canLockDevice());
+        settings.setDeviceLockStatus(lockRoute());
         settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
 
         boolean defaultLauncher = isDefaultLauncher();
@@ -375,8 +376,9 @@ public class HomeActivity extends Activity {
     }
 
     /**
-     * True only when we can actually lock: the admin is active *and* it holds
-     * {@code USES_POLICY_FORCE_LOCK}.
+     * True only when the admin can actually lock: it is active *and* it holds
+     * {@code USES_POLICY_FORCE_LOCK}. The fallback route only — see
+     * {@link #lockDevice()} for why it is not the first choice.
      *
      * <p>Both halves matter. {@code lockNow()} throws SecurityException for an
      * active admin that never declared force-lock, which is precisely how the
@@ -384,17 +386,34 @@ public class HomeActivity extends Activity {
      * {@code <uses-policies/>}. Anyone who activated that admin still has it
      * active after the update, so "active" alone is not enough to trust.
      */
-    private boolean canLockDevice() {
+    private boolean canLockViaAdmin() {
         return dpm.isAdminActive(lockAdmin)
                 && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
     }
 
-    /** Long-press-home-to-lock (DESIGN_NOTES §9 delta 19): lock instantly if
-     *  the admin is already active and armed, otherwise ask Android to show
-     *  the one-time activation dialog. Re-checked on every {@link #onResume()},
-     *  same as the other permission-adjacent flows in this activity. */
-    private void lockOrRequestAdmin() {
-        if (canLockDevice()) {
+    /** Which of the two lock routes is available right now — see
+     *  {@link LockRoute} for why the order matters. */
+    private LockRoute lockRoute() {
+        return LockRoute.choose(ShadeService.canLockScreen(this), canLockViaAdmin());
+    }
+
+    /**
+     * Long-press-home-to-lock (DESIGN_NOTES §9 deltas 19 and 25).
+     *
+     * <p>The accessibility global action first, because it is the only one of
+     * the two that leaves the fingerprint reader working: a device-admin
+     * {@code lockNow()} raises the strong-auth-required flag and Android then
+     * demands the PIN on the next unlock. That is why long-pressing used to
+     * lock people out of their own fingerprint.
+     *
+     * <p>{@code lockNow()} stays as the fallback — on API 26–27 there is no
+     * global action to call, and until the service is switched on it is this
+     * or nothing. Routes are re-read on every {@link #onResume()}, same as the
+     * other permission-adjacent flows in this activity.
+     */
+    private void lockDevice() {
+        if (ShadeService.lockScreen()) return;
+        if (canLockViaAdmin()) {
             try {
                 dpm.lockNow();
                 return;
@@ -403,6 +422,24 @@ public class HomeActivity extends Activity {
                 // (an OEM restriction, a stale grant across the update that
                 // added force-lock). Fall through and re-ask rather than die.
             }
+        }
+        requestLockCapability();
+    }
+
+    /**
+     * Sets up a lock route, without locking — this is what the DEVICE LOCK row
+     * in Settings calls, where locking the phone on a tap would be a surprise.
+     *
+     * <p>On API 28+ it always points at Accessibility settings, including for
+     * someone already on the admin route: that is the upgrade from "PIN ONLY"
+     * to a lock the fingerprint can undo, and it is the only route worth
+     * adding on a modern Android. Below 28 the admin dialog is the only thing
+     * there is.
+     */
+    private void requestLockCapability() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            openAccessibilitySettings();
+            return;
         }
         Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
         intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, lockAdmin);

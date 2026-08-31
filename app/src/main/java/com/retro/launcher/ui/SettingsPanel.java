@@ -13,6 +13,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.retro.launcher.core.DateFormatter;
+import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
@@ -72,7 +73,7 @@ public final class SettingsPanel extends FrameLayout {
     private List<String> dockEntries = new ArrayList<>();
     private boolean locationGranted;
     private boolean usageGranted;
-    private boolean deviceLockActive;
+    private LockRoute lockRoute = LockRoute.NONE;
     private boolean isDefaultLauncher;
     private boolean shadeServiceEnabled;
 
@@ -197,9 +198,10 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPermissionsSection();
     }
 
-    /** DESIGN_NOTES §9 delta 19: whether long-press-home-to-lock is armed. */
-    public void setDeviceLockStatus(boolean active) {
-        this.deviceLockActive = active;
+    /** DESIGN_NOTES §9 deltas 19 and 25: which route long-press-home-to-lock
+     *  has, which is also how the row tells "ON" from "PIN ONLY". */
+    public void setDeviceLockStatus(LockRoute route) {
+        this.lockRoute = route;
         rebuildPermissionsSection();
     }
 
@@ -598,7 +600,12 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(usageRow, gap);
         permSection.addView(usageRow);
 
-        View lockRow = permissionRow("DEVICE LOCK", deviceLockActive, "ON", "ENABLE",
+        // Three states, not two. "PIN ONLY" is the device-admin route: it does
+        // lock, but Android refuses the fingerprint on the next unlock, so it
+        // draws in the attention colour and stays tappable — same as ENABLE —
+        // rather than reading as done.
+        View lockRow = permissionRow("DEVICE LOCK", lockRoute.settled(),
+                lockRoute.status(), lockRoute.status(),
                 () -> { if (permissionListener != null) permissionListener.onEnableDeviceLock(); });
         addTopMargin(lockRow, gap);
         permSection.addView(lockRow);
@@ -617,13 +624,15 @@ public final class SettingsPanel extends FrameLayout {
         permSection.addView(defaultRow);
 
         TextView caption = new TextView(getContext());
-        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS · "
-                + "DEVICE LOCK NEEDS ADMIN ACCESS. THE LAUNCHER WORKS WITHOUT ANY OF THEM.\n\n"
+        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
+                + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
                 + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
-                + "SWIPE DOWN ON THE HOME SCREEN FOR NOTIFICATIONS. ANDROID BLOCKS THE "
-                + "DIRECT CALL ON RECENT VERSIONS, SO ENABLE NOTIFICATION SHADE ABOVE AND "
-                + "SWITCH RETRO LAUNCHER ON UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY "
-                + "OPENS THE SHADE.\n\n"
+                + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "
+                + "RETRO LAUNCHER UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY LOCKS THE "
+                + "SCREEN AND OPENS THE SHADE.\n\n"
+                + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
+                + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
+                + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
                 + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
