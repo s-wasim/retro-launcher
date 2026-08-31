@@ -1,12 +1,7 @@
 package com.retro.launcher.ui;
 
-import android.content.ActivityNotFoundException;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Typeface;
-import android.net.Uri;
-import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -19,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import com.retro.launcher.core.AppActionPolicy;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
@@ -26,6 +22,8 @@ import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.AppActions;
+import com.retro.launcher.util.Launch;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -310,43 +308,37 @@ public final class DrawerPanel extends FrameLayout {
     }
 
     private void launch(AppEntry app) {
-        Intent intent = new Intent(Intent.ACTION_MAIN);
-        intent.addCategory(Intent.CATEGORY_LAUNCHER);
-        intent.setComponent(new ComponentName(app.packageName, app.activityName));
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            getContext().startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            refresh(); // the app was uninstalled since the drawer was last loaded
-        }
+        if (AppActions.perform(getContext(), AppActionPolicy.Action.LAUNCH, app)) return;
+        // Nothing took the component or the package: it went away since the
+        // drawer was last loaded. Say so, then re-query so the row goes with it.
+        notice("APP NO LONGER INSTALLED");
+        refresh();
     }
 
-    private void openAppInfo(AppEntry app) {
-        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        intent.setData(Uri.fromParts("package", app.packageName, null));
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            getContext().startActivity(intent);
-        } catch (ActivityNotFoundException ignored) {
-            // No Settings app to resolve this — nothing we can do.
-        }
-    }
-
-    private void openUninstall(AppEntry app) {
-        Intent intent = new Intent(Intent.ACTION_DELETE);
-        intent.setData(Uri.fromParts("package", app.packageName, null));
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            getContext().startActivity(intent);
-        } catch (ActivityNotFoundException ignored) {
-            // No uninstaller to resolve this — nothing we can do.
-        }
+    /**
+     * Runs one quick-action row and says so on screen if nothing took it.
+     *
+     * The rows used to end in {@code catch (ActivityNotFoundException
+     * ignored) {}}, which is why a dead UNINSTALL row could not be diagnosed
+     * from the device at all. {@link Launch#first} logs each failed candidate
+     * under {@code LaunchChain}; a whole chain coming back empty is a visible
+     * event now.
+     */
+    private boolean perform(AppActionPolicy.Action action, AppEntry app) {
+        boolean started = AppActions.perform(getContext(), action, app);
+        if (!started) notice(action.label() + " UNAVAILABLE ON THIS DEVICE");
+        return started;
     }
 
     /**
      * Long-press quick-action box (issue #5): a small popup anchored just
-     * below the pressed row, offering Launch / Uninstall / More Details —
-     * replacing the old behaviour of jumping straight to system App Info.
+     * below the pressed row.
+     *
+     * The rows come from {@link AppActionPolicy} rather than being the same
+     * hardcoded three for every app, because the three included one labelled
+     * "UNINSTALL / DISABLE" — one row promising two outcomes, and a launcher
+     * can never deliver the second. What is offered now depends on whether
+     * the app is preinstalled, updated-preinstalled, or ordinary.
      */
     private void showAppActions(AppEntry app, View anchor) {
         LinearLayout box = new LinearLayout(getContext());
@@ -364,12 +356,56 @@ public final class DrawerPanel extends FrameLayout {
         popup.setOutsideTouchable(true);
         popup.setElevation(Math.round(metrics.cqw(1f)));
 
-        box.addView(actionRow("LAUNCH", padH, padV, () -> { popup.dismiss(); launch(app); }));
-        box.addView(actionRow("UNINSTALL / DISABLE", padH, padV, () -> { popup.dismiss(); openUninstall(app); }));
-        box.addView(actionRow("MORE DETAILS", padH, padV, () -> { popup.dismiss(); openAppInfo(app); }));
+        for (AppActionPolicy.Action action : AppActionPolicy.actionsFor(
+                app.systemApp, app.updatedSystemApp, AppActions.isSelf(getContext(), app))) {
+            box.addView(actionRow(action.label(), padH, padV, () -> {
+                popup.dismiss();
+                if (action == AppActionPolicy.Action.LAUNCH) launch(app);
+                else perform(action, app);
+            }));
+        }
 
         popup.showAsDropDown(anchor, 0, 0);
     }
+
+    /**
+     * A short themed message across the bottom of the drawer, for the one
+     * case that used to be silent: an action nothing on the device would take.
+     * Deliberately not a Toast — a Toast arrives in the system's own type and
+     * colours, which is exactly the seam this launcher spends its effort
+     * hiding.
+     */
+    private void notice(String text) {
+        TextView note = new TextView(getContext());
+        note.setText(text);
+        note.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        note.setAllCaps(true);
+        note.setGravity(Gravity.CENTER);
+        note.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(SIZE_CAPTION_CQW, SIZE_CAPTION_MIN));
+        int padH = Math.round(metrics.cqw(4.5f));
+        int padV = Math.round(metrics.cqw(2.5f));
+        note.setPadding(padH, padV, padH, padV);
+        note.setTextColor(palette != null ? palette.ink : 0xFFFFFFFF);
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setStroke(Math.round(Math.max(1, metrics.cqw(0.8f))),
+                palette != null ? palette.a : 0xFF888888);
+        bg.setColor(palette != null ? palette.bg : 0xFF202020);
+        note.setBackground(bg);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = Math.round(metrics.cqw(14f));
+        lp.leftMargin = lp.rightMargin = padH;
+        addView(note, lp);
+
+        note.postDelayed(() -> removeView(note), NOTICE_MS);
+    }
+
+    /** Long enough to read a short line, short enough not to sit over the list. */
+    private static final long NOTICE_MS = 2600L;
 
     private View actionRow(String text, int padH, int padV, Runnable onClick) {
         TextView row = new TextView(getContext());
