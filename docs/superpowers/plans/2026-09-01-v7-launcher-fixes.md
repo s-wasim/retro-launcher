@@ -142,9 +142,9 @@ Expected: `BUILD SUCCESSFUL`.
 - [ ] **Step 6: Verify the APK carries the committed signature and the new version**
 
 ```bash
-$HOME/Library/Android/sdk/build-tools/*/apksigner verify --print-certs \
+$HOME/Library/Android/sdk/build-tools/36.0.0/apksigner verify --print-certs \
   app/build/outputs/apk/debug/app-debug.apk | head -5
-$HOME/Library/Android/sdk/build-tools/*/aapt2 dump badging \
+$HOME/Library/Android/sdk/build-tools/36.0.0/aapt2 dump badging \
   app/build/outputs/apk/debug/app-debug.apk | head -1
 ```
 Expected: the certificate line reads `CN=Android Debug, O=Android, C=US`, and the badging line reads `versionCode='1000' versionName='1.0.0'`.
@@ -3088,7 +3088,7 @@ Expected: the list includes `com.retro.launcher.core.PopupPlacementTest.html`, `
 - [ ] **Step 3: Confirm the APK's version and signature**
 
 ```bash
-$HOME/Library/Android/sdk/build-tools/*/aapt2 dump badging \
+$HOME/Library/Android/sdk/build-tools/36.0.0/aapt2 dump badging \
   app/build/outputs/apk/debug/app-debug.apk | grep -E "^package|uses-permission" | head -20
 ```
 Expected: `versionCode='1000' versionName='1.0.0'`, and the permission list includes `android.permission.VIBRATE` and `android.permission.ACCESS_FINE_LOCATION`.
