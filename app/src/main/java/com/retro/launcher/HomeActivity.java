@@ -55,6 +55,7 @@ import com.retro.launcher.ui.ScreenTimePanel;
 import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
+import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -69,6 +70,7 @@ public class HomeActivity extends Activity {
     private static final int REQ_LOCATION = 1;
 
     private LauncherRoot root;
+    private Haptics haptics;
     private SkyView sky;
     private HomePanel home;
     private DrawerPanel drawer;
@@ -112,6 +114,7 @@ public class HomeActivity extends Activity {
         goEdgeToEdge();
 
         prefs = new Prefs(this);
+        haptics = new Haptics(this, prefs.haptics());
         weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
         dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -129,6 +132,7 @@ public class HomeActivity extends Activity {
         sky = new SkyView(this);
 
         root = new LauncherRoot(this);
+        root.setHaptics(haptics);
         home = new HomePanel(this, metrics, prefs, icons);
         sheet = new BottomSheet(this, metrics);
         drawer = new DrawerPanel(this, metrics, prefs, appRepository, icons, sheet);
@@ -144,6 +148,7 @@ public class HomeActivity extends Activity {
             // to the same colours right now).
             settings.setPalette(palette);
         });
+        settings.setOnHapticsChanged(enabled -> haptics.setEnabled(enabled));
         settings.setDockActionListener(new SettingsPanel.DockActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
@@ -656,6 +661,9 @@ public class HomeActivity extends Activity {
         super.onPause();
         ticker.removeCallbacks(minuteTick);
         sky.pause();
+        // A gesture interrupted by an app launch or the screen going off
+        // produces no ACTION_UP; without this the buzz would outlive it.
+        root.endDragBuzz();
     }
 
     @Override protected void onDestroy() {

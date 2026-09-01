@@ -53,6 +53,11 @@
          prompt. Undocumented reflection call, silent no-op if unavailable. -->
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
+    <!-- Drag and tap feedback. Normal protection: granted at install, no
+         runtime prompt. The FEEDBACK toggle in Settings is the only gate,
+         and Haptics checks it on every entry point. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- The drawer's UNINSTALL row. Required since API 8.0 to drive the
          package-uninstall flow, and minSdk here is exactly 26. Also normal
          protection: granted at install, no runtime prompt. Without it

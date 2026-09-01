@@ -61,6 +61,7 @@ public final class SettingsPanel extends FrameLayout {
     private final LinearLayout paletteSection;
     private final LinearLayout clockSection;
     private final LinearLayout tempSection;
+    private final LinearLayout feedbackSection;
     private final LinearLayout dockSection;
     private final LinearLayout permSection;
 
@@ -68,6 +69,7 @@ public final class SettingsPanel extends FrameLayout {
     private Runnable onClose = () -> {};
     private DockActionListener dockListener;
     private PermissionActionListener permissionListener;
+    private java.util.function.Consumer<Boolean> onHapticsChanged;
 
     private Palette palette;
     private Weather weather;
@@ -104,6 +106,7 @@ public final class SettingsPanel extends FrameLayout {
         content.addView(paletteSection = section());
         content.addView(clockSection = section());
         content.addView(tempSection = section());
+        content.addView(feedbackSection = section());
         content.addView(dockSection = section());
         content.addView(permSection = section());
 
@@ -179,6 +182,11 @@ public final class SettingsPanel extends FrameLayout {
     public void setDockActionListener(DockActionListener l) { this.dockListener = l; }
     public void setPermissionActionListener(PermissionActionListener l) { this.permissionListener = l; }
 
+    public void setOnHapticsChanged(java.util.function.Consumer<Boolean> listener) {
+        this.onHapticsChanged = listener;
+        rebuildFeedbackSection();
+    }
+
     public void setPalette(Palette p) {
         this.palette = p;
         Tint.apply(this, p);
@@ -225,6 +233,7 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPaletteSection();
         rebuildClockSection();
         rebuildTempSection();
+        rebuildFeedbackSection();
         rebuildDockSection();
         rebuildPermissionsSection();
     }
@@ -500,6 +509,21 @@ public final class SettingsPanel extends FrameLayout {
                 metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
         addTopMargin(caption, gap);
         tempSection.addView(caption);
+    }
+
+    // ---- FEEDBACK ------------------------------------------------------
+
+    /** One toggle, and deliberately its own section rather than a row under
+     *  another: haptics are the only thing in the launcher that the user
+     *  feels rather than sees. */
+    private void rebuildFeedbackSection() {
+        feedbackSection.removeAllViews();
+        if (palette == null) return;
+        feedbackSection.addView(sectionHeader("FEEDBACK"));
+        feedbackSection.addView(toggleRow("HAPTIC FEEDBACK", prefs.haptics(), checked -> {
+            prefs.putBool(Prefs.K_HAPTIC, checked);
+            if (onHapticsChanged != null) onHapticsChanged.accept(checked);
+        }));
     }
 
     // ---- DOCK --------------------------------------------------------
