@@ -67,6 +67,10 @@ public final class DrawerPanel extends FrameLayout {
     private final DrawerAdapter adapter;
     private final int headerPadTop;
 
+    /** Where the last gesture over the list started, in screen coordinates.
+     *  {@code OnItemLongClickListener} carries no coordinates of its own. */
+    private float[] listTouchPoint = {-1f, -1f};
+
     private List<AppEntry> allApps = new ArrayList<>();
     private String activeTab = "ALL";
     private Palette palette;
@@ -112,6 +116,7 @@ public final class DrawerPanel extends FrameLayout {
         // Vertical only: a swipe right across the app list closes the drawer,
         // the same swipe that opened it, run backwards.
         LauncherRoot.setVerticalScroller(listView);
+        listTouchPoint = AnchoredPopup.trackTouchPoint(listView);
         listView.setOnItemClickListener((AdapterView<?> parent, View v, int position, long id) -> {
             Object item = adapter.getItem(position);
             if (item instanceof AppEntry) launch((AppEntry) item);
@@ -354,10 +359,9 @@ public final class DrawerPanel extends FrameLayout {
         int padH = Math.round(metrics.cqw(4.5f));
         int padV = Math.round(metrics.cqw(2f));
 
-        android.widget.PopupWindow popup = new android.widget.PopupWindow(box,
-                Math.round(metrics.cqw(38f)), ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setElevation(Math.round(metrics.cqw(1f)));
+        int popupWidth = Math.round(metrics.cqw(38f));
+        android.widget.PopupWindow popup =
+                AnchoredPopup.window(box, popupWidth, metrics.cqw(1f));
 
         for (AppActionPolicy.Action action : AppActionPolicy.actionsFor(
                 app.systemApp, app.updatedSystemApp, AppActions.isSelf(getContext(), app))) {
@@ -368,7 +372,11 @@ public final class DrawerPanel extends FrameLayout {
             }));
         }
 
-        popup.showAsDropDown(anchor, 0, 0);
+        // Not showAsDropDown: it can only say "below this view, at its left
+        // edge", which put the box on the far left of the row and off the
+        // bottom of the screen for rows near it.
+        AnchoredPopup.showAt(popup, anchor, box, popupWidth,
+                listTouchPoint[0], listTouchPoint[1]);
     }
 
     /**
