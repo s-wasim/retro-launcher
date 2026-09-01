@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.TextView;
 
 import com.retro.launcher.core.Metrics;
@@ -31,11 +32,17 @@ public final class DockView extends LinearLayout {
 
     private static final int MAX_SLOTS = 5;
 
-    /** Long-pressing a filled slot requests its replacement; tapping the
-     *  trailing dashed slot requests an addition. Both hand off to whoever
-     *  owns the dock-picker {@code BottomSheet} — see HomeActivity. */
+    /**
+     * Long-pressing a filled slot opens a quick-action box over the dock;
+     * its rows call back here. Tapping the trailing dashed slot requests an
+     * addition. {@code onReplace} and {@code onAdd} hand off to whoever owns
+     * the dock-picker {@code BottomSheet} — see HomeActivity — while
+     * {@code onRemove} and {@code onAppInfo} act directly.
+     */
     public interface SlotActionListener {
         void onReplace(int slotIndex);
+        void onRemove(int slotIndex);
+        void onAppInfo(String component);
         void onAdd();
     }
 
@@ -119,8 +126,11 @@ public final class DockView extends LinearLayout {
         col.addView(caption);
 
         col.setOnClickListener(v -> launch(component));
+        // Per slot, not on the dock: a slot consumes ACTION_DOWN via its own
+        // click listener, so a listener on the parent would never see it.
+        final float[] point = AnchoredPopup.trackTouchPoint(col);
         col.setOnLongClickListener(v -> {
-            if (slotActionListener != null) slotActionListener.onReplace(index);
+            showSlotActions(v, component, index, point);
             return true;
         });
 
@@ -144,6 +154,57 @@ public final class DockView extends LinearLayout {
             if (slotActionListener != null) slotActionListener.onAdd();
         });
         return plus;
+    }
+
+    /**
+     * The dock's quick-action box: the three things worth doing to a pinned
+     * slot. Deliberately the same visual grammar and the same placement path
+     * as the drawer's box (DrawerPanel.showAppActions) — a long press should
+     * mean one thing across the launcher.
+     */
+    private void showSlotActions(View anchor, String component, int index, float[] touchPoint) {
+        if (palette == null) return;
+
+        LinearLayout box = new LinearLayout(getContext());
+        box.setOrientation(VERTICAL);
+        GradientDrawable boxBg = new GradientDrawable();
+        boxBg.setStroke(Math.round(Math.max(1, metrics.cqw(0.8f))), palette.p);
+        boxBg.setColor(palette.bg);
+        box.setBackground(boxBg);
+
+        int padH = Math.round(metrics.cqw(4.5f));
+        int padV = Math.round(metrics.cqw(2f));
+        int popupWidth = Math.round(metrics.cqw(38f));
+
+        PopupWindow popup = AnchoredPopup.window(box, popupWidth, metrics.cqw(1f));
+
+        box.addView(actionRow("REPLACE", padH, padV, () -> {
+            popup.dismiss();
+            if (slotActionListener != null) slotActionListener.onReplace(index);
+        }));
+        box.addView(actionRow("REMOVE", padH, padV, () -> {
+            popup.dismiss();
+            if (slotActionListener != null) slotActionListener.onRemove(index);
+        }));
+        box.addView(actionRow("MORE DETAILS", padH, padV, () -> {
+            popup.dismiss();
+            if (slotActionListener != null) slotActionListener.onAppInfo(component);
+        }));
+
+        AnchoredPopup.showAt(popup, anchor, box, popupWidth, touchPoint[0], touchPoint[1]);
+    }
+
+    private View actionRow(String text, int padH, int padV, Runnable onClick) {
+        TextView row = new TextView(getContext());
+        row.setText(text);
+        row.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        row.setAllCaps(true);
+        row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_TAB_CQW, DrawerPanel.SIZE_TAB_MIN));
+        row.setPadding(padH, padV, padH, padV);
+        row.setTextColor(palette.ink);
+        row.setOnClickListener(v -> onClick.run());
+        return row;
     }
 
     /** The dock stores components, not drawer rows; the icon source wants a

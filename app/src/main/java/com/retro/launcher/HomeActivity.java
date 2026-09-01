@@ -168,6 +168,8 @@ public class HomeActivity extends Activity {
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
+            @Override public void onRemove(int slotIndex) { removeDockSlot(slotIndex); }
+            @Override public void onAppInfo(String component) { openAppInfo(component); }
             @Override public void onAdd() { openDockSheet(-1); }
         });
 
@@ -257,6 +259,33 @@ public class HomeActivity extends Activity {
         f.addAction(Intent.ACTION_PACKAGE_REMOVED);
         f.addDataScheme("package");
         return f;
+    }
+
+    /** Drop a pinned slot without going through the picker sheet — the sheet
+     *  is for choosing an app, and removal is not a choice of app. */
+    private void removeDockSlot(int slotIndex) {
+        List<String> next = new ArrayList<>(home.dock.entries());
+        if (slotIndex < 0 || slotIndex >= next.size()) return;
+        next.remove(slotIndex);
+        prefs.setDock(next);
+        home.dock.setEntries(next);
+        settings.setDockEntries(next);
+    }
+
+    /** The system's App Info page for a dock component. Same destination as
+     *  the drawer's MORE DETAILS row, reached without a drawer row to hang
+     *  an {@link AppEntry} off. */
+    private void openAppInfo(String component) {
+        int slash = component.indexOf('/');
+        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", pkg, null));
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // A device with no Settings app to show. Nothing useful to do.
+        }
     }
 
     /** slotIndex -1 means "add"; otherwise the slot being replaced. */
