@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, V7]
   workflow_dispatch:
 
 concurrency:
