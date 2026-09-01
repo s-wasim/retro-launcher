@@ -1511,7 +1511,26 @@ harder to diagnose than one that is uniformly silent.
     }
 ```
 
-Reset `lastLetter = 0;` on `ACTION_DOWN` in `onTouchEvent`, so re-pressing the same letter still scrolls to it.
+`onTouchEvent` currently handles `ACTION_DOWN` and `ACTION_MOVE` in a single
+fallthrough case, so the reset needs the case split. Replace the whole method:
+
+```java
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                // A new gesture may start on the same letter the last one
+                // ended on, and that still has to scroll there — so the gate
+                // resets per gesture, not per view.
+                lastLetter = 0;
+                fireLetterAt(e.getY());
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                fireLetterAt(e.getY());
+                return true;
+        }
+        return true;
+    }
+```
 
 - [ ] **Step 5: Hand the engine to every view in `HomeActivity`**
 
