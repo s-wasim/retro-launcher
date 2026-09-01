@@ -2680,10 +2680,58 @@ Beside the existing `home.clock.setOnWeatherTap(...)` wiring in `onCreate`, add:
 
 - [ ] **Step 8: Update the copy**
 
-In `SetupScreen` and `SettingsPanel`, find every string describing the location permission — search for the word `COARSE`, `APPROXIMATE`, or `ROUGH` — and change it to say the fix is precise. For example a row reading `"LOCATION (APPROXIMATE)"` becomes `"LOCATION (PRECISE)"`, and a caption reading `"COARSE LOCATION FOR WEATHER"` becomes `"PRECISE LOCATION FOR LOCAL WEATHER"`. Keep the ALL CAPS monospace style and the existing line lengths.
+I have already run the search. There are exactly **three** edits — two of copy,
+one of a javadoc that would otherwise contradict the code. `strings.xml` contains
+no location copy at all; every user-facing string in this app is inline. Do not
+go hunting for more: the other `grep` hits for "coarse"/"rough" are unrelated
+comments about touch handling and clock packages, and must be left alone.
 
-Run first: `grep -rniE "coarse|approximate|rough" app/src/main/java/com/retro/launcher/ui/SetupScreen.java app/src/main/java/com/retro/launcher/ui/SettingsPanel.java app/src/main/res/values/strings.xml`
-and edit each hit.
+**Edit 1 — `SetupScreen.java`, line ~63.** This is the only user-facing string in
+the app that claims the fix is coarse, so it is the one that becomes untrue when
+this task lands.
+
+```java
+        body.setText("SCREEN TIME NEEDS USAGE ACCESS. WEATHER NEEDS A COARSE "
+                + "LOCATION. YOU CAN SKIP BOTH AND GRANT THEM LATER FROM SETTINGS.");
+```
+
+becomes:
+
+```java
+        body.setText("SCREEN TIME NEEDS USAGE ACCESS. WEATHER NEEDS YOUR PRECISE "
+                + "LOCATION. YOU CAN SKIP BOTH AND GRANT THEM LATER FROM SETTINGS.");
+```
+
+**Edit 2 — `SetupScreen.java`, line ~17 (class javadoc).**
+
+```java
+ * Usage Access feeds Screen Time; coarse location feeds the weather reading
+```
+
+becomes:
+
+```java
+ * Usage Access feeds Screen Time; a precise location fix feeds the weather
+ * reading
+```
+
+**Edit 3 — `SettingsPanel.java`, line ~630.**
+
+```java
+        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
+```
+
+becomes:
+
+```java
+        caption.setText("WEATHER NEEDS PRECISE LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
+```
+
+**Leave these alone** — they are row labels and state text that stay correct
+either way, and shortening or lengthening them would disturb the layout:
+`SetupScreen:132` `state(locationRow, locationGranted, "LOCATION")`;
+`SettingsPanel:596` `permissionRow("LOCATION", …)`;
+`SettingsPanel:496` `"NO READING — SYNTHETIC SKY · NEEDS LOCATION"`.
 
 - [ ] **Step 9: Build**
 
