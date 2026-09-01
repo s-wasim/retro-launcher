@@ -332,7 +332,7 @@ touch the workflow does not undo them.
 **Renamed (1)** — `icons/GeneratedTileIcons.java` → `icons/PixelArtIcons.java`
 (absorbing `PosterizedIcons`, which is deleted).
 
-**Modified (~16)** — `AndroidManifest.xml`, `app/build.gradle`,
+**Modified (21)** — `AndroidManifest.xml`, `app/build.gradle`,
 `HomeActivity.java`, `LauncherRoot.java`, `DrawerPanel.java`, `DockView.java`,
 `SettingsPanel.java`, `BottomSheet.java`, `SearchOverlay.java`,
 `ClockWidget.java`, `AlphaScrubber.java`, `LimitSlider.java`,
