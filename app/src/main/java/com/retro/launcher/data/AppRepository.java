@@ -1,6 +1,7 @@
 package com.retro.launcher.data;
 
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 
@@ -54,7 +55,12 @@ public final class AppRepository {
                 categories = Collections.singletonList(
                         CategoryMap.forCategory(info.activityInfo.applicationInfo.category));
             }
-            out.add(new AppEntry(label, pkg, activity, categories, false));
+            // Carried through so the quick-action box can offer rows the
+            // launcher can actually honour — see AppActionPolicy.
+            int flags = info.activityInfo.applicationInfo.flags;
+            boolean system = (flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            boolean updated = (flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+            out.add(new AppEntry(label, pkg, activity, categories, false, system, updated));
         }
 
         Collections.sort(out, Comparator.comparing(

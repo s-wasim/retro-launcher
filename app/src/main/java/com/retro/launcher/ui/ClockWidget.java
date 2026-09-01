@@ -1,9 +1,9 @@
 package com.retro.launcher.ui;
 
-import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.provider.AlarmClock;
 import android.view.LayoutInflater;
 import android.widget.FrameLayout;
@@ -16,6 +16,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Launch;
 
 import java.util.Calendar;
 
@@ -42,7 +43,7 @@ public final class ClockWidget extends FrameLayout {
     private final Prefs prefs;
     private Calendar lastTime;
 
-    private Runnable onTimeTap, onDateTap, onWeatherTap;
+    private Runnable onTimeTap, onDateTap, onWeatherTap, onNoWeatherApp;
 
     public ClockWidget(Context context) {
         super(context);
@@ -70,12 +71,72 @@ public final class ClockWidget extends FrameLayout {
 
         LauncherRoot.setNoSwipe(this);
 
-        timeView.setOnClickListener(v -> tap(onTimeTap, new Intent(AlarmClock.ACTION_SHOW_ALARMS)));
-        dateView.setOnClickListener(v -> tap(onDateTap,
-                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR)));
-        weatherView.setOnClickListener(v -> {
-            if (onWeatherTap != null) onWeatherTap.run();
-        });
+        timeView.setOnClickListener(v -> tap(onTimeTap, this::openClock));
+        dateView.setOnClickListener(v -> tap(onDateTap, this::openCalendar));
+        weatherView.setOnClickListener(v -> tap(onWeatherTap, this::openWeather));
+    }
+
+    /** Clock apps that ship without declaring ACTION_SHOW_ALARMS, in rough
+     *  order of how many devices carry them. */
+    private static final String[] CLOCK_PACKAGES = {
+            "com.google.android.deskclock",
+            "com.android.deskclock",
+            "com.sec.android.app.clockpackage",
+            "com.oneplus.deskclock",
+            "com.coloros.alarmclock",
+            "com.oppo.alarmclock",
+            "com.android.BBKClock",
+            "com.huawei.deskclock",
+            "com.transsion.deskclock",
+            "com.asus.deskclock",
+            "com.zui.deskclock",
+            "com.lge.clock",
+            "com.htc.android.worldclock",
+            "com.sonyericsson.organizer",
+    };
+
+    private static final String[] CALENDAR_PACKAGES = {
+            "com.google.android.calendar",
+            "com.android.calendar",
+            "com.samsung.android.calendar",
+    };
+
+    /** Android has no weather intent or category, so the weather region can
+     *  only go by package name (DESIGN_NOTES §9 row 8). */
+    private static final String[] WEATHER_PACKAGES = {
+            "com.google.android.apps.weather",
+            "com.sec.android.daemonapp",
+            "com.samsung.android.weather",
+            "com.miui.weather2",
+            "com.huawei.android.totemweather",
+            "com.coloros.weather2",
+            "com.oneplus.weather",
+            "com.weather.Weather",
+            "com.accuweather.android",
+    };
+
+    private void openClock() {
+        Launch.first(getContext(),
+                new Intent(AlarmClock.ACTION_SHOW_ALARMS),
+                Launch.packageLauncher(getContext(), CLOCK_PACKAGES));
+    }
+
+    /** DESIGN_NOTES §9 row 8: open a weather app if one is installed. Where
+     *  row 8 said "no-op if none found", the launcher now has a reading of its
+     *  own to refresh instead — see {@link #setOnNoWeatherApp}. */
+    private void openWeather() {
+        boolean opened = Launch.first(getContext(),
+                Launch.packageLauncher(getContext(), WEATHER_PACKAGES));
+        if (!opened && onNoWeatherApp != null) onNoWeatherApp.run();
+    }
+
+    private void openCalendar() {
+        long now = System.currentTimeMillis();
+        Launch.first(getContext(),
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR),
+                new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("content://com.android.calendar/time/" + now)),
+                Launch.packageLauncher(getContext(), CALENDAR_PACKAGES));
     }
 
     private int borderPx = 2;
@@ -92,6 +153,10 @@ public final class ClockWidget extends FrameLayout {
     public void setOnTimeTap(Runnable r) { this.onTimeTap = r; }
     public void setOnDateTap(Runnable r) { this.onDateTap = r; }
     public void setOnWeatherTap(Runnable r) { this.onWeatherTap = r; }
+
+    /** Runs when the weather region was tapped and no weather app is
+     *  installed to open. */
+    public void setOnNoWeatherApp(Runnable r) { this.onNoWeatherApp = r; }
 
     public void setPalette(Palette p) {
         background.setColor(p.veil());
@@ -147,15 +212,9 @@ public final class ClockWidget extends FrameLayout {
         weatherView.setText(w.tempIn(unit) + "° " + w.label);
     }
 
-    private void tap(Runnable custom, Intent fallback) {
-        if (custom != null) { custom.run(); return; }
-        try {
-            fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(fallback);
-        } catch (ActivityNotFoundException | SecurityException ignored) {
-            // No clock/calendar app installed, or the device refuses the
-            // intent (e.g. a restricted/managed profile) — either way a tap
-            // here must never crash the home screen. See spec §6.
-        }
+    /** A tap region runs its listener if one is set, otherwise its default
+     *  app launch. Both paths are best-effort — see {@link Launch}. */
+    private void tap(Runnable custom, Runnable fallback) {
+        (custom != null ? custom : fallback).run();
     }
 }

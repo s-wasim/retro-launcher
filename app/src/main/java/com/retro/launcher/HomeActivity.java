@@ -2,23 +2,32 @@ package com.retro.launcher;
 
 import android.app.Activity;
 import android.app.AppOpsManager;
+import android.app.admin.DeviceAdminInfo;
+import android.app.admin.DevicePolicyManager;
+import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.View;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 
+import com.retro.launcher.admin.LockAdminReceiver;
+import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
@@ -34,6 +43,7 @@ import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PosterizedIcons;
+import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
 import com.retro.launcher.ui.DockView;
@@ -42,6 +52,7 @@ import com.retro.launcher.ui.HintOverlay;
 import com.retro.launcher.ui.HomePanel;
 import com.retro.launcher.ui.LauncherRoot;
 import com.retro.launcher.ui.ScreenTimePanel;
+import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
 
@@ -63,6 +74,7 @@ public class HomeActivity extends Activity {
     private DrawerPanel drawer;
     private SettingsPanel settings;
     private ScreenTimePanel screenTime;
+    private SearchOverlay search;
     private BottomSheet sheet;
     private SetupScreen setupScreen;
     private HintOverlay hintOverlay;
@@ -72,6 +84,10 @@ public class HomeActivity extends Activity {
     private WeatherRepository weatherRepository;
     private UsageRepository usageRepository;
     private Palette palette;
+    private DevicePolicyManager dpm;
+    private ComponentName lockAdmin;
+    /** API 33+ only; null below that, where onBackPressed still runs. */
+    private OnBackInvokedCallback backCallback;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -84,6 +100,9 @@ public class HomeActivity extends Activity {
         @Override public void run() {
             refreshPalette();
             refreshTime();
+            // Cheap: the repository's own policy decides whether this minute
+            // is one where a fetch is actually due.
+            weatherRepository.refresh(false, HomeActivity.this::refreshTime);
             ticker.postDelayed(this, 60_000L);
         }
     };
@@ -93,8 +112,10 @@ public class HomeActivity extends Activity {
         goEdgeToEdge();
 
         prefs = new Prefs(this);
-        weatherRepository = new WeatherRepository();
+        weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
+        dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        lockAdmin = new ComponentName(this, LockAdminReceiver.class);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
@@ -108,7 +129,7 @@ public class HomeActivity extends Activity {
         sky = new SkyView(this);
 
         root = new LauncherRoot(this);
-        home = new HomePanel(this, metrics, prefs);
+        home = new HomePanel(this, metrics, prefs, icons);
         sheet = new BottomSheet(this, metrics);
         drawer = new DrawerPanel(this, metrics, prefs, appRepository, icons, sheet);
         drawer.setOnHomeListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
@@ -128,15 +149,22 @@ public class HomeActivity extends Activity {
             @Override public void onAdd() { openDockSheet(-1); }
         });
         settings.setPermissionActionListener(new SettingsPanel.PermissionActionListener() {
-            @Override public void onRequestLocation() {
-                requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
-            }
+            @Override public void onRequestLocation() { requestLocation(); }
             @Override public void onOpenUsageAccessSettings() { openUsageAccessSettings(); }
+            @Override public void onEnableDeviceLock() { requestLockCapability(); }
+            @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
+            @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
         screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
         screenTime.setOnLimitChangedListener(this::refreshUsage);
+
+        // The weather region opens a weather app (DESIGN_NOTES §9 row 8). With
+        // none installed it used to do nothing; now it asks for a fresh
+        // reading instead. The repository's 10-minute floor means leaning on
+        // it cannot turn into a poll.
+        home.clock.setOnNoWeatherApp(() -> weatherRepository.refresh(true, this::refreshTime));
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
@@ -144,11 +172,21 @@ public class HomeActivity extends Activity {
         });
 
         root.setPanels(home, settings, drawer, screenTime);
-        root.setDoubleTapListener(() -> Log.d("HomeActivity", "double-tap search stub — real overlay lands in Tier 5"));
+
+        search = new SearchOverlay(this, metrics, appRepository);
+        root.setDoubleTapListener(() -> {
+            search.setPalette(palette);
+            search.open();
+        });
+        root.setLongPressListener(this::lockDevice);
+        root.setOnStatusBarSwipeListener(this::expandStatusBar);
+
+        home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
 
         setupScreen = new SetupScreen(this, metrics);
         setupScreen.setListener(new SetupScreen.Listener() {
             @Override public void onGrantUsageAccess() { openUsageAccessSettings(); }
+            @Override public void onGrantLocation() { requestLocation(); }
             @Override public void onContinue() { showHint(); }
         });
 
@@ -158,13 +196,15 @@ public class HomeActivity extends Activity {
         FrameLayout stack = new FrameLayout(this);
         stack.addView(sky);   // z=0, behind everything, never moves
         stack.addView(root);
-        stack.addView(sheet); // overlay, above every panel
+        stack.addView(sheet);   // overlay, above every panel
+        stack.addView(search);  // above the sheet: double-tap wins
         stack.addView(setupScreen);
         stack.addView(hintOverlay);
         setContentView(stack);
 
         refreshPalette();
         refreshTime();
+        refreshSkyLocation();
         drawer.refresh();
         settings.setDockEntries(home.dock.entries());
         refreshPermissionStatus();
@@ -173,7 +213,24 @@ public class HomeActivity extends Activity {
         hintOverlay.setVisibility(View.GONE);
         setupScreen.setVisibility(prefs.hintShown() ? View.GONE : View.VISIBLE);
 
-        registerReceiver(packageReceiver, packageChangeFilter());
+        registerPackageReceiver();
+        registerBackCallback();
+    }
+
+    /**
+     * The filter carries only {@code ACTION_PACKAGE_ADDED} and
+     * {@code ACTION_PACKAGE_REMOVED}, both protected system broadcasts, so
+     * targetSdk 34+ does not demand an export flag here. Passing
+     * {@code RECEIVER_NOT_EXPORTED} anyway on API 33+ says what is meant
+     * rather than relying on that exemption: nothing outside the system has
+     * any business reaching this receiver.
+     */
+    private void registerPackageReceiver() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageReceiver, packageChangeFilter(), RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(packageReceiver, packageChangeFilter());
+        }
     }
 
     private void openUsageAccessSettings() {
@@ -239,11 +296,29 @@ public class HomeActivity extends Activity {
         }
     }
 
+    /**
+     * Lay out behind the system bars.
+     *
+     * The launcher has always drawn fullscreen, so nothing about the
+     * *intent* changed here — only the API that expresses it. The
+     * {@code SYSTEM_UI_FLAG_*} route has been deprecated since API 30 and is
+     * an outright no-op from 35, where edge-to-edge is compulsory and the
+     * decor no longer fits itself to the bars for you. Below 30 the flags are
+     * still the only way to say it.
+     *
+     * Either way the six panels keep receiving the insets through their own
+     * {@code onApplyWindowInsets} overrides, which is what actually keeps
+     * content out from under the status bar and the gesture pill.
+     */
     private void goEdgeToEdge() {
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
     }
 
     /** Current time as a decimal hour, the unit every time-driven system uses. */
@@ -269,15 +344,42 @@ public class HomeActivity extends Activity {
             drawer.setPalette(palette);
             settings.setPalette(palette);
             screenTime.setPalette(palette);
+            if (search != null) search.setPalette(palette);
         }
+        applySkyTint();
+    }
+
+    /**
+     * Settings' "TINT WALLPAPER TO PALETTE" switch: on, the sky posterizes to
+     * the palette's six-colour ramp; off, it keeps its own colours.
+     *
+     * <p>Outside the palette-changed guard above on purpose. Toggling the
+     * switch does not change which palette resolves, so anything inside that
+     * guard would never run — which is exactly why the switch used to look
+     * dead: nothing had ever called {@code sky.setTint}.
+     */
+    private void applySkyTint() {
+        sky.setTint(prefs.tint() ? palette.ramp() : null);
+    }
+
+    /** The moon's phase is the same everywhere; which way up it looks is not.
+     *  Latitude comes from the coarse fix the weather already keeps. */
+    private void refreshSkyLocation() {
+        double[] fix = weatherRepository.fix();
+        sky.setLatitude(fix == null ? Float.NaN : (float) fix[0]);
     }
 
     private void refreshTime() {
         Calendar now = Calendar.getInstance();
         home.setTime(now);
+
+        // The sky always gets a value — a synthetic one when we have no
+        // reading — but the widget must not present invented weather as a
+        // measurement, so it gets null and renders "--°" instead (spec §3.6).
         Weather w = weatherRepository.current(decimalHour());
-        home.setWeather(w);
-        settings.setWeather(w);
+        Weather shown = weatherRepository.hasReading() ? w : null;
+        home.setWeather(shown);
+        settings.setWeather(shown);
         sky.setWeather(w.w);
     }
 
@@ -295,8 +397,191 @@ public class HomeActivity extends Activity {
 
     private void refreshPermissionStatus() {
         boolean usageGranted = hasUsageAccess();
-        settings.setPermissionStatus(hasLocationPermission(), usageGranted);
-        setupScreen.setGranted(usageGranted);
+        boolean locationGranted = hasLocationPermission();
+        settings.setPermissionStatus(locationGranted, usageGranted);
+        setupScreen.setGranted(usageGranted, locationGranted);
+
+        settings.setDeviceLockStatus(lockRoute());
+        settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
+
+        boolean defaultLauncher = isDefaultLauncher();
+        settings.setDefaultLauncherStatus(defaultLauncher);
+        home.setDefaultLauncherPromptVisible(!defaultLauncher);
+    }
+
+    private void requestLocation() {
+        requestPermissions(
+                new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+    }
+
+    /**
+     * True only when the admin can actually lock: it is active *and* it holds
+     * {@code USES_POLICY_FORCE_LOCK}. The fallback route only — see
+     * {@link #lockDevice()} for why it is not the first choice.
+     *
+     * <p>Both halves matter. {@code lockNow()} throws SecurityException for an
+     * active admin that never declared force-lock, which is precisely how the
+     * previous build crashed — {@code device_admin.xml} shipped an empty
+     * {@code <uses-policies/>}. Anyone who activated that admin still has it
+     * active after the update, so "active" alone is not enough to trust.
+     */
+    private boolean canLockViaAdmin() {
+        return dpm.isAdminActive(lockAdmin)
+                && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
+    }
+
+    /** Which of the two lock routes is available right now — see
+     *  {@link LockRoute} for why the order matters. */
+    private LockRoute lockRoute() {
+        return LockRoute.choose(ShadeService.canLockScreen(this), canLockViaAdmin());
+    }
+
+    /**
+     * Long-press-home-to-lock (DESIGN_NOTES §9 deltas 19 and 25).
+     *
+     * <p>The accessibility global action first, because it is the only one of
+     * the two that leaves the fingerprint reader working: a device-admin
+     * {@code lockNow()} raises the strong-auth-required flag and Android then
+     * demands the PIN on the next unlock. That is why long-pressing used to
+     * lock people out of their own fingerprint.
+     *
+     * <p>{@code lockNow()} stays as the fallback — on API 26–27 there is no
+     * global action to call, and until the service is switched on it is this
+     * or nothing. Routes are re-read on every {@link #onResume()}, same as the
+     * other permission-adjacent flows in this activity.
+     */
+    private void lockDevice() {
+        if (ShadeService.lockScreen()) return;
+        if (canLockViaAdmin()) {
+            try {
+                dpm.lockNow();
+                return;
+            } catch (SecurityException ignored) {
+                // The policy set disagrees with what the framework will honour
+                // (an OEM restriction, a stale grant across the update that
+                // added force-lock). Fall through and re-ask rather than die.
+            }
+        }
+        requestLockCapability();
+    }
+
+    /**
+     * Sets up a lock route, without locking — this is what the DEVICE LOCK row
+     * in Settings calls, where locking the phone on a tap would be a surprise.
+     *
+     * <p>On API 28+ it always points at Accessibility settings, including for
+     * someone already on the admin route: that is the upgrade from "PIN ONLY"
+     * to a lock the fingerprint can undo, and it is the only route worth
+     * adding on a modern Android. Below 28 the admin dialog is the only thing
+     * there is.
+     */
+    private void requestLockCapability() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            openAccessibilitySettings();
+            return;
+        }
+        Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+        intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, lockAdmin);
+        intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Lets long-pressing the home screen lock your device instantly.");
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // No admin-activation screen to resolve it — nothing else we can do.
+        }
+    }
+
+    /** DESIGN_NOTES §9 delta 20: RoleManager on 29+, a PackageManager
+     *  comparison below that — API 26's floor predates RoleManager. */
+    private boolean isDefaultLauncher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            RoleManager rm = (RoleManager) getSystemService(Context.ROLE_SERVICE);
+            return rm != null && rm.isRoleHeld(RoleManager.ROLE_HOME);
+        }
+        Intent homeIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+        ResolveInfo resolved = getPackageManager().resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
+        return resolved != null && resolved.activityInfo != null
+                && getPackageName().equals(resolved.activityInfo.packageName);
+    }
+
+    /**
+     * Opens the system screen where this app can be picked as the home app.
+     *
+     * <p>Not {@code RoleManager.createRequestRoleIntent(ROLE_HOME)}, which is
+     * what the previous build used and why the button appeared dead: ROLE_HOME
+     * is marked non-requestable in the platform's role definitions, so the
+     * system's request-role activity finishes immediately without ever drawing
+     * a dialog. Third-party launchers have to send the user to the settings
+     * screen instead, on every API level.
+     *
+     * <p>Three tries, narrowest first: the dedicated home-app screen, then the
+     * default-apps list, then Settings itself. OEM builds vary in which of the
+     * first two they ship.
+     */
+    private void requestDefaultLauncher() {
+        if (startSafely(new Intent(Settings.ACTION_HOME_SETTINGS))) return;
+        if (startSafely(new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))) return;
+        startSafely(new Intent(Settings.ACTION_SETTINGS));
+    }
+
+    /**
+     * Starts {@code intent}, reporting whether it went, so a caller can fall
+     * through to its next candidate.
+     *
+     * <p>Deliberately no {@code resolveActivity} pre-check. Under API 30+
+     * package visibility that call can answer null for an activity that would
+     * have launched perfectly well, and a false negative here means a dead
+     * button — the exact failure this method exists to end. Attempting the
+     * start and catching is both the honest test and what the rest of this
+     * activity already does.
+     */
+    private boolean startSafely(Intent intent) {
+        try {
+            startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            return false;
+        }
+    }
+
+    /** Sends the user to Accessibility settings to switch on the shade
+     *  fallback — see {@link ShadeService}. */
+    private void openAccessibilitySettings() {
+        startSafely(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    }
+
+    /**
+     * Swipe-down-opens-the-shade (DESIGN_NOTES §9 delta 21). Two routes, in
+     * order of how little they ask of the user.
+     *
+     * <p>First the reflection into {@code StatusBarManager}, guarded by the
+     * EXPAND_STATUS_BAR permission in the manifest. It needs no setup at all,
+     * and still works on pre-Android-12 and on a number of OEM builds. It is
+     * also a denylisted non-SDK interface, so at this app's targetSdk the
+     * lookup itself throws on a current AOSP device — which is exactly why the
+     * previous build's swipe did nothing, silently.
+     *
+     * <p>Then {@link ShadeService}, the accessibility fallback, which does
+     * work everywhere but only once the user has switched it on. While it is
+     * off this method still ends in a no-op; the Settings row is where that
+     * gets explained and fixed.
+     */
+    private void expandStatusBar() {
+        if (expandViaStatusBarManager()) return;
+        ShadeService.expandNotificationShade();
+    }
+
+    private boolean expandViaStatusBarManager() {
+        try {
+            Object statusBarService = getSystemService("statusbar");
+            if (statusBarService == null) return false;
+            Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
+            statusBarManager.getMethod("expandNotificationsPanel").invoke(statusBarService);
+            return true;
+        } catch (Throwable ignored) {
+            // Blocked, absent, or refused — fall through to the service.
+            return false;
+        }
     }
 
     /** Pulls fresh device usage data and drives the panel, the over-limit
@@ -318,7 +603,13 @@ public class HomeActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode == REQ_LOCATION) refreshPermissionStatus();
+        if (requestCode == REQ_LOCATION) {
+            refreshPermissionStatus();
+            // Just granted: go and get a reading now rather than waiting out
+            // the freshness window with an empty widget.
+            weatherRepository.refresh(true, this::refreshTime);
+            refreshSkyLocation();
+        }
     }
 
     @Override protected void onResume() {
@@ -328,6 +619,8 @@ public class HomeActivity extends Activity {
         drawer.refresh();
         refreshPermissionStatus();
         refreshUsage();
+        refreshSkyLocation();
+        weatherRepository.refresh(false, this::refreshTime);
     }
 
     @Override protected void onPause() {
@@ -339,16 +632,49 @@ public class HomeActivity extends Activity {
     @Override protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(packageReceiver);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
+        }
     }
 
+    /**
+     * Only the configuration changes that cannot alter the layout are handled
+     * here; see the {@code configChanges} list in the manifest for why the
+     * ones that can are deliberately left to recreate the activity.
+     */
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         refreshPalette();
     }
 
-    /** Back must never leave the home screen. */
+    /**
+     * Predictive back, API 33+.
+     *
+     * At targetSdk 36 the platform stops calling {@link #onBackPressed()}
+     * altogether, so without this the override below would go quietly dead
+     * and back would start closing the launcher — the one thing a home screen
+     * must never do. Registered for the activity's whole life at
+     * {@code PRIORITY_DEFAULT}, which also means the system never runs its
+     * "swipe back to leave the app" animation here; there is nothing behind a
+     * launcher to go back to.
+     */
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        backCallback = this::handleBack;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
+    }
+
+    /** Back must never leave the home screen. The pre-33 path. */
+    @Deprecated
     @Override public void onBackPressed() {
-        if (sheet.isOpen()) {
+        handleBack();
+    }
+
+    private void handleBack() {
+        if (search.isOpen()) {
+            search.close();
+        } else if (sheet.isOpen()) {
             sheet.close();
         } else if (root.currentView() != LauncherRoot.VIEW_HOME) {
             root.goTo(LauncherRoot.VIEW_HOME);

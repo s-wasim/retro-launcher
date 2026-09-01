@@ -148,6 +148,43 @@ public class SkyRendererTest {
         assertTrue(meanLumaBox(bufFull, cx, cy, 10) > meanLumaBox(bufNew, cx, cy, 10));
     }
 
+    /** Moon disc rendered at midnight for a given phase and hemisphere. */
+    private int[] moonAt(float phase, boolean southern) {
+        SkyRenderer r = new SkyRenderer(W, H);
+        r.setSouthernView(southern);
+        int[] buf = new int[W * H];
+        r.render(buf, 0f, 0f, phase, 0f);
+        return buf;
+    }
+
+    @Test public void waxingCrescentIsLitOnTheRightFromTheNorth() {
+        int[] buf = moonAt(0.12f, false);
+        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        assertTrue(meanLumaBox(buf, cx + 9, cy, 2) > meanLumaBox(buf, cx - 9, cy, 2) + 20f);
+    }
+
+    @Test public void waningCrescentIsLitOnTheLeftFromTheNorth() {
+        int[] buf = moonAt(0.88f, false);
+        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        assertTrue(meanLumaBox(buf, cx - 9, cy, 2) > meanLumaBox(buf, cx + 9, cy, 2) + 20f);
+    }
+
+    /** South of the equator the same crescent hangs the other way round. */
+    @Test public void theSouthernViewMirrorsTheTerminator() {
+        int[] north = moonAt(0.12f, false);
+        int[] south = moonAt(0.12f, true);
+        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        assertTrue(meanLumaBox(north, cx + 9, cy, 2) > meanLumaBox(south, cx + 9, cy, 2) + 20f);
+        assertTrue(meanLumaBox(south, cx - 9, cy, 2) > meanLumaBox(north, cx - 9, cy, 2) + 20f);
+    }
+
+    /** A full moon has no terminator, so hemisphere cannot change its brightness. */
+    @Test public void hemisphereDoesNotChangeHowMuchOfAFullMoonIsLit() {
+        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        assertEquals(meanLumaBox(moonAt(0.5f, false), cx, cy, 10),
+                     meanLumaBox(moonAt(0.5f, true), cx, cy, 10), 6f);
+    }
+
     @Test public void discsClipAtTheBufferEdgeWithoutCrashing() {
         for (float hour = 0f; hour <= 24f; hour += 0.25f) {
             int[] buf = renderAt(hour, 0f);

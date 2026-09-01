@@ -118,4 +118,49 @@ public class UsageMathTest {
         assertEquals(0.5f, UsageMath.usageFraction(120 * 60_000L, 240), 0.001f);
         assertEquals(1.25f, UsageMath.usageFraction(300 * 60_000L, 240), 0.001f);
     }
+
+    private static List<UsageMath.Interval> mixedDay() {
+        return Arrays.asList(
+                new UsageMath.Interval("com.retro.launcher",
+                        utc(2026, Calendar.AUGUST, 28, 9, 0), utc(2026, Calendar.AUGUST, 28, 9, 20)),
+                new UsageMath.Interval("com.other.app",
+                        utc(2026, Calendar.AUGUST, 28, 10, 0), utc(2026, Calendar.AUGUST, 28, 10, 40)),
+                new UsageMath.Interval("com.retro.launcher",
+                        utc(2026, Calendar.AUGUST, 28, 11, 0), utc(2026, Calendar.AUGUST, 28, 11, 10)));
+    }
+
+    @Test public void excludingDropsEveryIntervalOfThatPackage() {
+        List<UsageMath.Interval> kept = UsageMath.excluding(mixedDay(), "com.retro.launcher");
+        assertEquals(1, kept.size());
+        assertEquals("com.other.app", kept.get(0).pkg);
+    }
+
+    @Test public void onlyKeepsEveryIntervalOfThatPackage() {
+        long day28 = UsageMath.startOfDay(utc(2026, Calendar.AUGUST, 28, 0, 0), UTC);
+        List<UsageMath.Interval> mine = UsageMath.only(mixedDay(), "com.retro.launcher");
+        assertEquals(2, mine.size());
+        assertEquals(30 * 60_000L, UsageMath.totalForDay(mine, day28, UTC));
+    }
+
+    @Test public void excludingAndOnlyIgnoreNullAndUnknownPackages() {
+        assertEquals(3, UsageMath.excluding(mixedDay(), null).size());
+        assertEquals(3, UsageMath.excluding(mixedDay(), "com.nobody").size());
+        assertTrue(UsageMath.only(mixedDay(), null).isEmpty());
+        assertTrue(UsageMath.only(mixedDay(), "com.nobody").isEmpty());
+    }
+
+    @Test public void resolveTotalSubtractsLauncherTimeFromTheDeviceReading() {
+        assertEquals(150 * 60_000L,
+                UsageMath.resolveTotal(180 * 60_000L, 30 * 60_000L, 42 * 60_000L));
+    }
+
+    @Test public void resolveTotalFallsBackWhenTheDeviceReportsNothing() {
+        assertEquals(42 * 60_000L, UsageMath.resolveTotal(0, 30 * 60_000L, 42 * 60_000L));
+        assertEquals(42 * 60_000L, UsageMath.resolveTotal(-1, 30 * 60_000L, 42 * 60_000L));
+        assertEquals(0L, UsageMath.resolveTotal(0, 30 * 60_000L, 0));
+    }
+
+    @Test public void resolveTotalNeverGoesNegativeWhenLauncherTimeOverruns() {
+        assertEquals(0L, UsageMath.resolveTotal(10 * 60_000L, 30 * 60_000L, 42 * 60_000L));
+    }
 }

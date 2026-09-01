@@ -61,4 +61,53 @@ public class SyntheticWeatherTest {
             assertTrue(w.w >= 0f && w.w <= 1f);
         }
     }
+
+    // ---- drift: the stand-in sky when there is no real reading -----------
+
+    @Test public void driftStaysInUnitRangeAcrossAYearOfDays() {
+        for (long day = 20_000L; day < 20_365L; day++) {
+            for (float hour = 0f; hour < 24f; hour += 0.5f) {
+                float w = SyntheticWeather.drift(day, hour);
+                assertTrue("day " + day + " hour " + hour + " gave " + w,
+                        w >= 0f && w <= 1f);
+            }
+        }
+    }
+
+    @Test public void driftIsDeterministicForTheSameDayAndHour() {
+        assertEquals(SyntheticWeather.drift(20_321L, 14.25f),
+                SyntheticWeather.drift(20_321L, 14.25f), 0f);
+    }
+
+    @Test public void driftGivesDifferentDaysDifferentWeather() {
+        int distinct = 0;
+        float first = SyntheticWeather.drift(20_000L, 12f);
+        for (long day = 20_001L; day < 20_030L; day++) {
+            if (Math.abs(SyntheticWeather.drift(day, 12f) - first) > 0.05f) distinct++;
+        }
+        assertTrue("29 consecutive days produced " + distinct + " distinct skies",
+                distinct > 20);
+    }
+
+    @Test public void driftMovesGraduallyThroughTheDay() {
+        // No visible jumps: an hour of elapsed time must not swing the sky
+        // from clear to storm.
+        for (float hour = 0f; hour < 23f; hour += 1f) {
+            float a = SyntheticWeather.drift(20_321L, hour);
+            float b = SyntheticWeather.drift(20_321L, hour + 1f);
+            assertTrue("jump of " + Math.abs(b - a) + " at hour " + hour,
+                    Math.abs(b - a) < 0.15f);
+        }
+    }
+
+    @Test public void driftReachesBothClearAndWetSkiesOverTime() {
+        boolean sawClear = false, sawWet = false;
+        for (long day = 20_000L; day < 20_200L; day++) {
+            float w = SyntheticWeather.drift(day, 12f);
+            if (w < 0.15f) sawClear = true;
+            if (w > 0.60f) sawWet = true;
+        }
+        assertTrue("never produced a clear day", sawClear);
+        assertTrue("never produced a wet day", sawWet);
+    }
 }

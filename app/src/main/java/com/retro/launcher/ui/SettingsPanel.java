@@ -13,6 +13,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.retro.launcher.core.DateFormatter;
+import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
@@ -44,6 +45,9 @@ public final class SettingsPanel extends FrameLayout {
     public interface PermissionActionListener {
         void onRequestLocation();
         void onOpenUsageAccessSettings();
+        void onEnableDeviceLock();
+        void onSetDefaultLauncher();
+        void onEnableNotificationShade();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -53,6 +57,7 @@ public final class SettingsPanel extends FrameLayout {
 
     private final LinearLayout header;
     private final int headerPadTop;
+    private final ScrollView scroll;
     private final LinearLayout paletteSection;
     private final LinearLayout clockSection;
     private final LinearLayout tempSection;
@@ -69,6 +74,9 @@ public final class SettingsPanel extends FrameLayout {
     private List<String> dockEntries = new ArrayList<>();
     private boolean locationGranted;
     private boolean usageGranted;
+    private LockRoute lockRoute = LockRoute.NONE;
+    private boolean isDefaultLauncher;
+    private boolean shadeServiceEnabled;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -84,8 +92,10 @@ public final class SettingsPanel extends FrameLayout {
         column.addView(header = buildHeader());
         headerPadTop = header.getPaddingTop();
 
-        ScrollView scroll = new ScrollView(context);
-        LauncherRoot.setNoSwipe(scroll);
+        scroll = new ScrollView(context);
+        // Vertical only: a swipe left across the settings body closes the
+        // panel. The scrubber and toggles inside still claim their own drags.
+        LauncherRoot.setVerticalScroller(scroll);
         LinearLayout content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         int sidePad = Math.round(metrics.cqw(4.5f));
@@ -158,6 +168,8 @@ public final class SettingsPanel extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // Otherwise the bottom of the body rests under the gesture pill.
+            com.retro.launcher.util.Insets.padScrollerForSystemBars(scroll, insets, 0);
         }
         return super.onApplyWindowInsets(insets);
     }
@@ -186,6 +198,26 @@ public final class SettingsPanel extends FrameLayout {
     public void setPermissionStatus(boolean locationGranted, boolean usageGranted) {
         this.locationGranted = locationGranted;
         this.usageGranted = usageGranted;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 deltas 19 and 25: which route long-press-home-to-lock
+     *  has, which is also how the row tells "ON" from "PIN ONLY". */
+    public void setDeviceLockStatus(LockRoute route) {
+        this.lockRoute = route;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 delta 20: whether this app is the default launcher. */
+    public void setDefaultLauncherStatus(boolean isDefault) {
+        this.isDefaultLauncher = isDefault;
+        rebuildPermissionsSection();
+    }
+
+    /** DESIGN_NOTES §9 delta 21: whether the accessibility fallback that opens
+     *  the notification shade is switched on. */
+    public void setNotificationShadeStatus(boolean enabled) {
+        this.shadeServiceEnabled = enabled;
         rebuildPermissionsSection();
     }
 
@@ -404,7 +436,7 @@ public final class SettingsPanel extends FrameLayout {
 
         HorizontalScrollView tokenScroll = new HorizontalScrollView(getContext());
         tokenScroll.setHorizontalScrollBarEnabled(false);
-        LauncherRoot.setNoSwipe(tokenScroll);
+        LauncherRoot.setNoSwipe(tokenScroll, LauncherRoot.AXIS_H);
         LinearLayout tokenRow = new LinearLayout(getContext());
         tokenRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams tokenRowLp = new LinearLayout.LayoutParams(
@@ -457,8 +489,11 @@ public final class SettingsPanel extends FrameLayout {
         tempSection.addView(unitRow);
 
         TextView caption = new TextView(getContext());
-        String condition = weather != null ? weather.label : "—";
-        caption.setText("READ FROM WALLPAPER STATE — " + condition + " · LIVE CLOCK");
+        // Null means no live reading — the sky is running on the synthetic
+        // stand-in, and saying so beats implying the dash is a measurement.
+        caption.setText(weather != null
+                ? "OPEN-METEO — " + weather.label + " · " + weather.tempIn(prefs.unit()) + "°"
+                : "NO READING — SYNTHETIC SKY · NEEDS LOCATION");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
         caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
@@ -568,9 +603,40 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(usageRow, gap);
         permSection.addView(usageRow);
 
+        // Three states, not two. "PIN ONLY" is the device-admin route: it does
+        // lock, but Android refuses the fingerprint on the next unlock, so it
+        // draws in the attention colour and stays tappable — same as ENABLE —
+        // rather than reading as done.
+        View lockRow = permissionRow("DEVICE LOCK", lockRoute.settled(),
+                lockRoute.status(), lockRoute.status(),
+                () -> { if (permissionListener != null) permissionListener.onEnableDeviceLock(); });
+        addTopMargin(lockRow, gap);
+        permSection.addView(lockRow);
+
+        View shadeRow = permissionRow("NOTIFICATION SHADE", shadeServiceEnabled, "ON", "ENABLE",
+                () -> { if (permissionListener != null) permissionListener.onEnableNotificationShade(); });
+        addTopMargin(shadeRow, gap);
+        permSection.addView(shadeRow);
+
+        // Always tappable, unlike the rows above: re-picking your home app is
+        // a thing people want to do while already the default, and there is no
+        // harm in opening the screen that shows it.
+        View defaultRow = permissionRow("DEFAULT LAUNCHER", isDefaultLauncher, "DEFAULT", "SET", true,
+                () -> { if (permissionListener != null) permissionListener.onSetDefaultLauncher(); });
+        addTopMargin(defaultRow, gap);
+        permSection.addView(defaultRow);
+
         TextView caption = new TextView(getContext());
         caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
-                + "THE LAUNCHER WORKS WITHOUT EITHER.");
+                + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
+                + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
+                + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "
+                + "RETRO LAUNCHER UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY LOCKS THE "
+                + "SCREEN AND OPENS THE SHADE.\n\n"
+                + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
+                + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
+                + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
+                + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
         caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
@@ -580,9 +646,35 @@ public final class SettingsPanel extends FrameLayout {
     }
 
     private View permissionRow(String label, boolean granted, Runnable onFix) {
+        return permissionRow(label, granted, "GRANTED", "FIX", onFix);
+    }
+
+    /** {@code grantedText}/{@code fixText} generalize this beyond runtime
+     *  permissions — DEVICE LOCK, NOTIFICATION SHADE and DEFAULT LAUNCHER read
+     *  "ON"/"ENABLE" and "DEFAULT"/"SET" through the same row rather than
+     *  "GRANTED"/"FIX". */
+    private View permissionRow(String label, boolean granted,
+                                String grantedText, String fixText, Runnable onFix) {
+        return permissionRow(label, granted, grantedText, fixText, false, onFix);
+    }
+
+    /**
+     * {@code tappableWhenGranted} keeps the action live even once the thing is
+     * done — DEFAULT LAUNCHER wants that, a granted runtime permission does not.
+     *
+     * <p>The whole row carries the click, not just the status word. The status
+     * word alone is four to seven monospace characters, well under the 48dp
+     * minimum target, which made these actions feel broken even where the
+     * intent behind them was sound.
+     */
+    private View permissionRow(String label, boolean granted,
+                                String grantedText, String fixText,
+                                boolean tappableWhenGranted, Runnable onFix) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        int touchPad = Math.round(metrics.cqw(2f));
+        row.setPadding(0, touchPad, 0, touchPad);
 
         TextView labelView = new TextView(getContext());
         labelView.setText(label);
@@ -593,13 +685,17 @@ public final class SettingsPanel extends FrameLayout {
         row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView status = new TextView(getContext());
-        status.setText(granted ? "GRANTED" : "FIX");
+        status.setText(granted ? grantedText : fixText);
         status.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         status.setTextColor(granted ? palette.p : palette.a);
         status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
-        if (!granted) status.setOnClickListener(v -> onFix.run());
         row.addView(status);
+
+        // Deliberately not marked no-swipe: LauncherRoot never intercepts a
+        // tap, only a drag past 12dp, so the click is safe, and leaving the
+        // row open means a sideways swipe across it still closes the panel.
+        if (!granted || tappableWhenGranted) row.setOnClickListener(v -> onFix.run());
 
         return row;
     }

@@ -36,6 +36,16 @@ public final class Prefs {
     public static final String K_LIMIT    = "limit";
     public static final String K_HINT     = "hint";
 
+    // Tier 5. The last good weather reading and the fix it was taken at, so a
+    // cold start shows yesterday's number instead of "--°" while the first
+    // fetch is still in flight.
+    public static final String K_WX_TEMP  = "wxTemp";
+    public static final String K_WX_LABEL = "wxLabel";
+    public static final String K_WX_W     = "wxW";
+    public static final String K_WX_AT    = "wxAt";
+    public static final String K_WX_LAT   = "wxLat";
+    public static final String K_WX_LON   = "wxLon";
+
     private final SharedPreferences sp;
 
     public Prefs(Context context) {
@@ -115,4 +125,11 @@ public final class Prefs {
     public void putString(String key, String value)  { sp.edit().putString(key, value).apply(); }
     public void putBool(String key, boolean value)   { sp.edit().putBoolean(key, value).apply(); }
     public void putInt(String key, int value)        { sp.edit().putInt(key, value).apply(); }
+    public void putLong(String key, long value)      { sp.edit().putLong(key, value).apply(); }
+    public void putFloat(String key, float value)    { sp.edit().putFloat(key, value).apply(); }
+
+    public String getString(String key, String fallback) { return sp.getString(key, fallback); }
+    public int    getInt(String key, int fallback)       { return sp.getInt(key, fallback); }
+    public long   getLong(String key, long fallback)     { return sp.getLong(key, fallback); }
+    public float  getFloat(String key, float fallback)   { return sp.getFloat(key, fallback); }
 }

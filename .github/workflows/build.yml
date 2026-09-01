@@ -25,7 +25,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          # Pinned with the AGP version in build.gradle: AGP 8.13.2 needs
+          # Gradle 8.14 or newer. There is no wrapper in this repo, so the
+          # two have to be changed together.
+          gradle-version: '8.14.5'
 
       - name: Unit tests
         run: gradle :core:test --no-daemon

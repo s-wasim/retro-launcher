@@ -1,3 +1,7 @@
 plugins {
-    id 'com.android.application' version '8.5.2' apply false
+    // Last of the 8.x line. It compiles against API 36, which is what Play
+    // requires from August 2026, without taking on AGP 9's DSL breaks for a
+    // project that gains nothing from them. Needs Gradle 8.14+ — the CI
+    // workflow pins the same pair.
+    id 'com.android.application' version '8.13.2' apply false
 }

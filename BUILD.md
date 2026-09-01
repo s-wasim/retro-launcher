@@ -1,8 +1,10 @@
 # How the APK gets built
 
-This project never compiles locally — there is no Android SDK or Gradle
-wrapper on this machine, and none is needed. CI is the only build
-environment. Here's the path from "design applied" to "APK on your phone."
+There is no Gradle wrapper in this repo, so the Gradle and AGP versions are
+pinned in two places that must move together: `gradle-version` in
+`.github/workflows/build.yml` and the AGP version in the root
+`build.gradle`. CI is the reference build environment. Here's the path from
+"design applied" to "APK on your phone."
 
 ## 1. Trigger
 
@@ -15,8 +17,10 @@ with `gh workflow run build.yml`.
 ## 2. What CI does
 
 1. Checks out the repo on a fresh `ubuntu-latest` runner.
-2. Installs JDK 17 (Temurin) and Gradle 8.7 — no wrapper needed, since the
-   workflow installs Gradle directly via `gradle/actions/setup-gradle`.
+2. Installs JDK 17 (Temurin) and Gradle 8.14.5 — no wrapper needed, since
+   the workflow installs Gradle directly via `gradle/actions/setup-gradle`.
+   That version is the floor for AGP 8.13.2, which is what compiles against
+   `compileSdk 36`; changing either means changing both.
 3. Runs `gradle assembleDebug --no-daemon`.
    - `minifyEnabled true` + `shrinkResources true` + R8 full mode strip
      unused code/resources on this build type (debug is intentionally

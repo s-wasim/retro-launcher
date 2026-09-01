@@ -9,21 +9,86 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- The clock widget's tap regions and the search overlay's web row.
+             Declaring them keeps resolveActivity() and getLaunchIntentForPackage()
+             honest on API 30+, so the fallback chains in Launch can tell "no such
+             app" apart from "the app is hidden from us". -->
+        <intent>
+            <action android:name="android.intent.action.SHOW_ALARMS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CALENDAR" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.WEB_SEARCH" />
+        </intent>
+        <!-- The drawer's quick-action box. Package visibility was not the
+             cause of the dead uninstall row (App Info resolved fine, so
+             filtering was not biting), but declaring these keeps the
+             fallback chain in AppActions honest on API 30+ — without them a
+             device that really has no installer would be indistinguishable
+             from one that is merely hiding it from us. -->
+        <intent>
+            <action android:name="android.intent.action.DELETE" />
+            <data android:scheme="package" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.UNINSTALL_PACKAGE" />
+            <data android:scheme="package" />
+        </intent>
     </queries>
 
-    <!-- Exactly three, per HANDOFF.md §0 row 1. Do not add a fourth. -->
+    <!-- Exactly three, per HANDOFF.md §0 row 1, plus the one below added for
+         the status-bar swipe (DESIGN_NOTES §9 delta 21). Home-screen lock
+         needs no uses-permission — see the LockAdminReceiver declaration
+         below (DESIGN_NOTES §9 delta 19). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Swipe-down-from-status-bar-inset: normal protection, no runtime
+         prompt. Undocumented reflection call, silent no-op if unavailable. -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+
+    <!-- The drawer's UNINSTALL row. Required since API 8.0 to drive the
+         package-uninstall flow, and minSdk here is exactly 26. Also normal
+         protection: granted at install, no runtime prompt. Without it
+         startActivity(ACTION_DELETE) still succeeds — the system installer
+         resolves, starts, finds no permission on the caller and finishes
+         before drawing — which is precisely why the row appeared to do
+         nothing at all rather than fail. See DESIGN_NOTES §9 delta 26. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- enableOnBackInvokedCallback: from targetSdk 36 the platform stops
+         calling Activity#onBackPressed, so the callback HomeActivity
+         registers is the only thing keeping Back from closing the launcher.
+         Opting in explicitly rather than relying on the target-level default
+         keeps that legible. -->
     <application
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/AppTheme">
 
+        <!-- screenOrientation is kept, but it is a request, not a guarantee:
+             API 36 ignores it on displays 600dp and wider. The layout is
+             sized in cqw off the screen's own width, so it adapts.
+
+             configChanges deliberately lists only the changes that cannot
+             alter the layout's dimensions. Every size-affecting one —
+             orientation, screenSize, screenLayout, density, fontScale — is
+             left off so the activity recreates: Metrics is built once from
+             displayMetrics in onCreate and every padding, text size and icon
+             in the app is a fixed pixel value derived from it at construction
+             time, so a resize has to rebuild the view tree, and recreation is
+             the cheapest correct way to do that. Recreation is safe here by
+             construction — stateNotNeeded, no saved state read, the launcher
+             always reopens on home, and the receiver is registered in
+             onCreate against onDestroy. -->
         <activity
             android:name=".HomeActivity"
             android:exported="true"
@@ -39,6 +104,42 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Long-press-home-to-lock: an inert admin that requests no
+             policies beyond what any active admin already gets — see
+             DESIGN_NOTES §9 delta 19. android:permission is what makes this
+             a device-admin receiver; only the system can invoke it. -->
+        <receiver
+            android:name=".admin.LockAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Opt-in, and the route for two gestures: swipe-down-opens-the-shade
+             and long-press-locks-the-screen. Off until the user enables it in
+             Accessibility settings; the shade swipe is a silent no-op until
+             then and the long press falls back to the device admin. Reads
+             nothing — see ShadeService's javadoc and DESIGN_NOTES §9 deltas 21
+             and 25. android:permission is what makes this an accessibility
+             service; only the system can bind it. -->
+        <service
+            android:name=".shade.ShadeService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/shade_service" />
+        </service>
 
     </application>
 

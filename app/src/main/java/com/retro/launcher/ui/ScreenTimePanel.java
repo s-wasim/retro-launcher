@@ -37,7 +37,9 @@ public final class ScreenTimePanel extends FrameLayout {
 
     private final LinearLayout header;
     private final int headerPadTop;
+    private final ScrollView scroll;
     private final TextView todayTotal;
+    private final CoffeeButton coffee;
     private final TextView pickupsLabel;
     private final LinearLayout limitCard;
     private final TextView limitTitle;
@@ -72,17 +74,36 @@ public final class ScreenTimePanel extends FrameLayout {
         column.addView(header = buildHeader());
         headerPadTop = header.getPaddingTop();
 
-        ScrollView scroll = new ScrollView(context);
-        LauncherRoot.setNoSwipe(scroll);
+        scroll = new ScrollView(context);
+        // Vertical only, and only while there is still content above: once the
+        // list is at the top, a downward drag pulls the panel shut instead —
+        // the reverse of the swipe up that opened it.
+        LauncherRoot.setVerticalScroller(scroll);
         LinearLayout content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         int sidePad = Math.round(metrics.cqw(4.5f));
         content.setPadding(sidePad, 0, sidePad, Math.round(metrics.cqw(8f)));
 
+        // The day's total, with the coffee button next to it. The total takes the
+        // slack so the button keeps its measured width on a narrow screen
+        // rather than clipping the words off its label.
+        LinearLayout totalRow = new LinearLayout(context);
+        totalRow.setOrientation(LinearLayout.HORIZONTAL);
+        totalRow.setGravity(Gravity.CENTER_VERTICAL);
+
         todayTotal = new TextView(context);
         todayTotal.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        todayTotal.setSingleLine(true);
         todayTotal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(8f, 24f));
-        content.addView(todayTotal);
+        totalRow.addView(todayTotal, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        coffee = new CoffeeButton(context, metrics);
+        totalRow.addView(coffee, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        content.addView(totalRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         pickupsLabel = new TextView(context);
         pickupsLabel.setTypeface(Typeface.MONOSPACE);
@@ -217,6 +238,8 @@ public final class ScreenTimePanel extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // Otherwise the bottom of the body rests under the gesture pill.
+            com.retro.launcher.util.Insets.padScrollerForSystemBars(scroll, insets, 0);
         }
         return super.onApplyWindowInsets(insets);
     }
@@ -228,6 +251,7 @@ public final class ScreenTimePanel extends FrameLayout {
         this.palette = p;
         Tint.apply(this, p);
         slider.setPalette(p);
+        coffee.setPalette(p);
         todayTotal.setTextColor(p.ink);
         pickupsLabel.setTextColor(p.a);
         limitTitle.setTextColor(p.ink);

@@ -2,16 +2,22 @@ plugins { id 'com.android.application' }
 
 android {
     namespace 'com.retro.launcher'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.retro.launcher"
+        // Stays at 26. Nothing here needs a higher floor, and raising it
+        // drops devices for nothing.
         minSdk 26
-        targetSdk 34
+        targetSdk 36
         versionCode 1
         versionName "0.1"
         vectorDrawables.useSupportLibrary false
-        resConfigs "en"
+    }
+
+    // resConfigs moved out of defaultConfig and was deprecated in AGP 8.x.
+    androidResources {
+        localeFilters += ['en']
     }
 
     buildTypes {

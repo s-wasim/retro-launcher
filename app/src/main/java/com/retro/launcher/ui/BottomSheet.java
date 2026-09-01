@@ -6,7 +6,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -28,8 +27,11 @@ public final class BottomSheet extends FrameLayout {
     private final TextView titleView;
     private final LinearLayout header;
     private final LinearLayout rows;
+    private final LinearLayout panel;
     private final LinearLayout addRow;
-    private final EditText addField;
+    private final PixelField addField;
+    private final GradientDrawable addButtonBg;
+    private final int borderPx;
     private final int headerPadTop;
     private Palette palette;
 
@@ -44,12 +46,12 @@ public final class BottomSheet extends FrameLayout {
         scrim.setOnClickListener(v -> close());
         addView(scrim, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
-        LinearLayout panel = new LinearLayout(context);
+        panel = new LinearLayout(context);
         panel.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable panelBg = new GradientDrawable();
         panel.setBackground(panelBg);
         Tint.setRole(panel, Tint.ROLE_BG);
-        int borderPx = Math.round(Math.max(1, metrics.cqw(0.8f)));
+        borderPx = Math.round(Math.max(1, metrics.cqw(0.8f)));
         panelBg.setStroke(borderPx, 0);
 
         header = new LinearLayout(context);
@@ -85,18 +87,43 @@ public final class BottomSheet extends FrameLayout {
 
         addRow = new LinearLayout(context);
         addRow.setOrientation(LinearLayout.HORIZONTAL);
+        addRow.setGravity(Gravity.CENTER_VERTICAL);
         addRow.setPadding(pad, pad, pad, pad);
-        addField = new EditText(context);
-        addField.setSingleLine(true);
-        addField.setTypeface(Typeface.MONOSPACE);
+
+        addField = new PixelField(context, metrics,
+                DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN);
         addField.setHint("NEW CATEGORY");
-        Tint.setRole(addField, Tint.ROLE_INK);
+        // A category name becomes a chip in the drawer's tab strip and a key
+        // in Prefs, both upper case; raise it as it is typed so the two
+        // cannot drift apart.
+        addField.setAllCapsInput(true);
+
+        // The ADD button takes the same border so the pair reads as one
+        // control, and a real touch target — it was text-sized, which is a
+        // hard tap beside a field.
         TextView add = new TextView(context);
         add.setText("ADD");
         add.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        add.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
+        add.setGravity(Gravity.CENTER);
+        int addPadH = Math.round(metrics.cqw(4f));
+        add.setPadding(addPadH, 0, addPadH, 0);
+        int target = Math.round(metrics.cqw(11f));
+        add.setMinHeight(target);
+        add.setMinWidth(target);
+        addButtonBg = new GradientDrawable();
+        addButtonBg.setStroke(borderPx, 0);
+        add.setBackground(addButtonBg);
         Tint.setRole(add, Tint.ROLE_P);
-        addRow.addView(addField, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        addRow.addView(add);
+
+        addField.setMinimumHeight(target);
+        LinearLayout.LayoutParams fieldLp =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        fieldLp.rightMargin = Math.round(metrics.cqw(2.5f));
+        addRow.addView(addField, fieldLp);
+        addRow.addView(add, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, target));
         addRow.setVisibility(GONE);
         this.addButton = add;
 
@@ -118,6 +145,16 @@ public final class BottomSheet extends FrameLayout {
             android.graphics.Insets sys = insets.getInsets(android.view.WindowInsets.Type.systemBars());
             header.setPadding(header.getPaddingLeft(), headerPadTop + sys.top,
                     header.getPaddingRight(), header.getPaddingBottom());
+            // The IME belongs in this one alongside the bars. The sheet is
+            // anchored to the bottom edge and the window does not resize
+            // itself under edge-to-edge, so without the keyboard's inset the
+            // NEW CATEGORY field is behind the keys the moment it is tapped —
+            // you type the name blind. With it, the sheet lifts clear.
+            // SearchOverlay has always asked for ime() for the same reason.
+            android.graphics.Insets bottom = insets.getInsets(
+                    android.view.WindowInsets.Type.systemBars()
+                            | android.view.WindowInsets.Type.ime());
+            panel.setPadding(sys.left, panel.getPaddingTop(), sys.right, bottom.bottom);
         }
         return super.onApplyWindowInsets(insets);
     }
@@ -125,6 +162,11 @@ public final class BottomSheet extends FrameLayout {
     public void setPalette(Palette p) {
         this.palette = p;
         Tint.apply(this, p);
+        // Tint stops at the text colour for a TextView; the field's border,
+        // caret and handles and the ADD button's border need the rest of it.
+        addField.setPalette(p);
+        addButtonBg.setColor(p.bg);
+        addButtonBg.setStroke(borderPx, p.p);
     }
 
     /** Clears prior rows and opens the sheet with a fresh title. */

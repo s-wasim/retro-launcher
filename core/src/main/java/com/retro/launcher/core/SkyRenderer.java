@@ -36,6 +36,7 @@ public final class SkyRenderer {
 
     private int[] tintRamp;          // null unless "tint wallpaper to palette"
     private float desaturation;      // 0 = off; the over-limit nag
+    private boolean southernView;    // the moon, seen from below the equator
 
     public SkyRenderer(int w, int h) {
         this(w, h, 1337L);
@@ -120,6 +121,17 @@ public final class SkyRenderer {
 
     public void setDesaturation(float amount) {
         this.desaturation = clamp01(amount);
+    }
+
+    /**
+     * Below the equator the moon rides the sky upside down: a waxing crescent
+     * is lit on the left, and the maria sit the other way up. Rotating the
+     * disc 180° is the whole of the difference — the phase itself is the same
+     * number everywhere on Earth. Driven by the latitude of the same coarse
+     * fix the weather uses; see {@link MoonPhase#southernView}.
+     */
+    public void setSouthernView(boolean southern) {
+        this.southernView = southern;
     }
 
     public void render(int[] out, float hour, float weather,
@@ -225,7 +237,10 @@ public final class SkyRenderer {
         for (int y = -13; y <= 13; y++) {
             for (int x = -13; x <= 13; x++) {
                 if (Math.hypot(x, y) > R) continue;
-                float nx = x / R, ny = y / R;
+                // The disc rotates 180° south of the equator: the terminator,
+                // the craters and the limb shading all read these, never x/y.
+                int mx = southernView ? -x : x, my = southernView ? -y : y;
+                float nx = mx / R, ny = my / R;
                 float q = moonPhase <= 0.5f ? moonPhase : 1f - moonPhase;
                 float sx = moonPhase <= 0.5f ? 1f : -1f;
                 float term = (float) (Math.cos(2 * Math.PI * q) * Math.sqrt(Math.max(0, 1 - ny * ny)));
@@ -234,7 +249,7 @@ public final class SkyRenderer {
                 if (!lit) { px(out, X, Y, darkColR, darkColG, darkColB, 0.55f); continue; }
 
                 int xi = (int) X, yi = (int) Y;
-                float dd = (float) Math.hypot(x + 2.5, y + 3) + (Bayer.M[yi & 3][xi & 3] / 16f - 0.5f) * 2.2f;
+                float dd = (float) Math.hypot(mx + 2.5, my + 3) + (Bayer.M[yi & 3][xi & 3] / 16f - 0.5f) * 2.2f;
                 float cr = dd > R * 0.82f ? litMidR : litColR;
                 float cg = dd > R * 0.82f ? litMidG : litColG;
                 float cb = dd > R * 0.82f ? litMidB : litColB;

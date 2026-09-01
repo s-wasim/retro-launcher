@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two lint errors are deliberate here, and both are narrowed to the one file
+  that earns them rather than switched off across the project.
+
+  GestureBackNavigation tells you to move onBackPressed to AndroidX's
+  OnBackPressedDispatcher. This project has no AndroidX dependency and
+  intends not to acquire one (app/build.gradle's dependencies block is empty
+  and android.useAndroidX=false, so the build fails loudly if anything pulls
+  it in). The platform equivalent is already in place: HomeActivity
+  registers an OnBackInvokedCallback on API 33+, and the onBackPressed
+  override lint is pointing at is the pre-33 path it deliberately keeps.
+
+  WrongConstant fires on getSystemService("statusbar"). There is no public
+  constant for it — that is the whole point of the call, a reflective route
+  into a non-SDK interface, wrapped in a catch-all with ShadeService as the
+  documented fallback. See DESIGN_NOTES §9 delta 21.
+-->
+<lint>
+    <issue id="GestureBackNavigation">
+        <ignore path="src/main/java/com/retro/launcher/HomeActivity.java" />
+    </issue>
+    <issue id="WrongConstant">
+        <ignore path="src/main/java/com/retro/launcher/HomeActivity.java" />
+    </issue>
+</lint>

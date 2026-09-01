@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately the narrowest declaration that still yields a bound service.
+  No canRetrieveWindowContent, no canPerformGestures, no packageNames filter
+  needed because we never read an event. performGlobalAction is available to
+  any connected service; that is the entire reason this exists.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="1000"
+    android:description="@string/shade_service_description" />

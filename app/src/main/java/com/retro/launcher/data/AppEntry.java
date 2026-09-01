@@ -14,13 +14,33 @@ public final class AppEntry {
     public final List<String> categories;   // tab names this app belongs to; empty = UNSORTED
     public final boolean diagnostic;         // true only for the "queries block missing" row
 
+    /** {@code ApplicationInfo.FLAG_SYSTEM}: preinstalled, cannot be uninstalled. */
+    public final boolean systemApp;
+    /** {@code ApplicationInfo.FLAG_UPDATED_SYSTEM_APP}: preinstalled, since updated. */
+    public final boolean updatedSystemApp;
+
     public AppEntry(String label, String packageName, String activityName,
                      List<String> categories, boolean diagnostic) {
+        this(label, packageName, activityName, categories, diagnostic, false, false);
+    }
+
+    /**
+     * The two flags decide which removal rows the drawer's quick-action box
+     * offers — see {@code AppActionPolicy}. Entries built from a stored
+     * component string rather than from PackageManager (the dock) use the
+     * short constructor above and report neither flag; they never open that
+     * box.
+     */
+    public AppEntry(String label, String packageName, String activityName,
+                     List<String> categories, boolean diagnostic,
+                     boolean systemApp, boolean updatedSystemApp) {
         this.label = label;
         this.packageName = packageName;
         this.activityName = activityName;
         this.categories = categories;
         this.diagnostic = diagnostic;
+        this.systemApp = systemApp;
+        this.updatedSystemApp = updatedSystemApp;
     }
 
     public String component() {
