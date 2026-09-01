@@ -550,7 +550,7 @@ Replaces the dock's full-screen `BottomSheet` on long-press with the same anchor
 
 **Files:**
 - Modify: `app/src/main/java/com/retro/launcher/ui/DockView.java`
-- Modify: `app/src/main/java/com/retro/launcher/HomeActivity.java` (the two `setOnSlotActionListener` blocks at lines 148 and 169)
+- Modify: `app/src/main/java/com/retro/launcher/HomeActivity.java` (the ONE `DockView.SlotActionListener` block at line ~169, plus two new private methods)
 
 **Interfaces:**
 - Consumes: `AnchoredPopup.window`, `AnchoredPopup.showAt`, `AnchoredPopup.trackTouchPoint` from Task 2.
@@ -696,14 +696,25 @@ Add these two methods to `DockView`, after `buildAddSlot()`:
 
 - [ ] **Step 4: Implement the two new callbacks in `HomeActivity`**
 
-Both `setOnSlotActionListener` blocks (lines 148 and 169) currently read:
+**There is exactly ONE `DockView.SlotActionListener` in this file — at line ~169,
+`home.dock.setOnSlotActionListener(...)`. Change only that one.**
+
+There is a second, near-identical anonymous class at line ~147 whose body reads
+the same two lines, but it implements `SettingsPanel.DockActionListener` — a
+different interface that is NOT changing in this task. Adding `onRemove` /
+`onAppInfo` to it will fail to compile with "method does not override or
+implement a method from a supertype". Leave it exactly as it is.
+
+The block to change currently reads:
 
 ```java
+        home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
+        });
 ```
 
-Replace both with:
+Replace its body with:
 
 ```java
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
@@ -743,7 +754,12 @@ Then add these two methods next to `openDockSheet`:
     }
 ```
 
-Add `import android.content.Intent;` to `HomeActivity` if it is not already there.
+`HomeActivity` already imports `android.content.Intent` (line 12),
+`android.provider.Settings` (line 22), `java.util.ArrayList` (line 59) and
+`java.util.List` (line 61) — verified. So `openAppInfo` may use the short
+`Settings.ACTION_APPLICATION_DETAILS_SETTINGS` and `removeDockSlot` may use bare
+`List`/`ArrayList`. `android.net.Uri` is NOT imported; keep the fully-qualified
+`android.net.Uri.fromParts(...)` rather than adding an import.
 
 - [ ] **Step 5: Build**
 
