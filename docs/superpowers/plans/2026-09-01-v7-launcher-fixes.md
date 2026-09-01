@@ -1989,7 +1989,7 @@ git commit -m "feat(core): one-foreground-app span machine, discarding unclosed 
 
 **Files:**
 - Modify: `core/src/main/java/com/retro/launcher/core/UsageMath.java`
-- Modify: `core/src/test/java/com/retro/launcher/core/UsageMathTest.java` (delete lines 152–165, the three `resolveTotal` tests; add the new ones)
+- Modify: `core/src/test/java/com/retro/launcher/core/UsageMathTest.java` (delete lines 152–165 — the three `resolveTotal` tests, verified to be exactly that range; line 166 is the class's closing brace and must stay. Then add the new tests before it.)
 
 **Interfaces:**
 - Consumes: `UsageMath.Interval` (existing).
@@ -2007,14 +2007,14 @@ In `core/src/test/java/com/retro/launcher/core/UsageMathTest.java`, delete the t
         return new UsageMath.Interval(pkg, from, to);
     }
 
-    private static long sum(java.util.List<UsageMath.Interval> ivs) {
+    private static long sum(List<UsageMath.Interval> ivs) {
         long total = 0;
         for (UsageMath.Interval i : ivs) total += i.endMillis - i.startMillis;
         return total;
     }
 
     @Test public void mergeCoalescesOverlappingSpansForOnePackage() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 0, 100), iv("a", 50, 200)));
         assertEquals(1, merged.size());
         assertEquals(0L, merged.get(0).startMillis);
@@ -2022,77 +2022,85 @@ In `core/src/test/java/com/retro/launcher/core/UsageMathTest.java`, delete the t
     }
 
     @Test public void mergeCoalescesTouchingSpans() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 0, 100), iv("a", 100, 200)));
         assertEquals(1, merged.size());
         assertEquals(200L, merged.get(0).endMillis);
     }
 
     @Test public void mergeKeepsSeparatePackagesSeparate() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 0, 100), iv("b", 50, 200)));
         assertEquals(2, merged.size());
         assertEquals(250L, sum(merged));
     }
 
     @Test public void mergeKeepsAGapAsTwoSpans() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 0, 100), iv("a", 150, 200)));
         assertEquals(2, merged.size());
         assertEquals(150L, sum(merged));
     }
 
     @Test public void mergeSwallowsAFullyContainedSpan() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 0, 500), iv("a", 100, 200)));
         assertEquals(1, merged.size());
         assertEquals(500L, sum(merged));
     }
 
     @Test public void mergeHandlesUnsortedInput() {
-        java.util.List<UsageMath.Interval> merged = UsageMath.merge(java.util.Arrays.asList(
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
                 iv("a", 150, 200), iv("a", 0, 100), iv("a", 90, 160)));
         assertEquals(1, merged.size());
         assertEquals(200L, sum(merged));
     }
 
     @Test public void mergeOfNothingIsNothing() {
-        assertTrue(UsageMath.merge(new java.util.ArrayList<>()).isEmpty());
+        assertTrue(UsageMath.merge(new ArrayList<>()).isEmpty());
     }
 
     @Test public void intersectClipsSpansToTheWindows() {
-        java.util.List<UsageMath.Interval> clipped = UsageMath.intersect(
-                java.util.Arrays.asList(iv("a", 0, 1000)),
-                java.util.Arrays.asList(iv("!awake", 200, 400), iv("!awake", 600, 700)));
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 1000)),
+                Arrays.asList(iv("!awake", 200, 400), iv("!awake", 600, 700)));
         assertEquals(2, clipped.size());
         assertEquals(300L, sum(clipped));
         assertEquals("a", clipped.get(0).pkg);
     }
 
     @Test public void intersectDropsSpansEntirelyOutsideEveryWindow() {
-        java.util.List<UsageMath.Interval> clipped = UsageMath.intersect(
-                java.util.Arrays.asList(iv("a", 0, 100)),
-                java.util.Arrays.asList(iv("!awake", 500, 900)));
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 100)),
+                Arrays.asList(iv("!awake", 500, 900)));
         assertTrue(clipped.isEmpty());
     }
 
     @Test public void intersectWithNoWindowsKeepsNothing() {
-        java.util.List<UsageMath.Interval> clipped = UsageMath.intersect(
-                java.util.Arrays.asList(iv("a", 0, 100)),
-                new java.util.ArrayList<>());
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 100)),
+                new ArrayList<>());
         assertTrue(clipped.isEmpty());
     }
 
     @Test public void intersectPreservesAFullyContainedSpan() {
-        java.util.List<UsageMath.Interval> clipped = UsageMath.intersect(
-                java.util.Arrays.asList(iv("a", 200, 300)),
-                java.util.Arrays.asList(iv("!awake", 0, 1000)));
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 200, 300)),
+                Arrays.asList(iv("!awake", 0, 1000)));
         assertEquals(1, clipped.size());
         assertEquals(100L, sum(clipped));
     }
 ```
 
-Add `import static org.junit.Assert.assertTrue;` to the test file if it is not already imported.
+**Imports:** the file already has `import static org.junit.Assert.*;` (a wildcard), so
+`assertTrue`/`assertEquals` need nothing added — do NOT add a redundant single-member
+static import. It also already imports `java.util.Arrays`, `java.util.List`,
+`java.util.Calendar` and `java.util.TimeZone`. The one thing it lacks is
+`java.util.ArrayList`; add exactly that line beside the others:
+
+```java
+import java.util.ArrayList;
+```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
