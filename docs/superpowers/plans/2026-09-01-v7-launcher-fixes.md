@@ -1429,31 +1429,33 @@ For `ClockWidget`, `AlphaScrubber`, `LimitSlider` and `CoffeeButton`, `thud()` i
 - [ ] **Step 2: Add `tick()` to every tap listener**
 
 Every site below was enumerated from the current source — line numbers are as
-of commit `4262124`, and the listener text is quoted so you can find each one
-even if a line has shifted. Add `tick();` as the **first** statement of the
+of commit **`1d6a2ba`, the head this task starts from**, and were re-verified
+after Tasks 3 and 5 shifted `DockView` and `SettingsPanel`. The quoted listener
+text is authoritative: if a line number does not match, search for the quoted
+code rather than editing whatever happens to be on that line. Add `tick();` as the **first** statement of the
 lambda body. Where a lambda is a single expression, convert it to a block:
 `v -> launch(component)` becomes `v -> { tick(); launch(component); }`.
 
 | File | Line | Listener | Note |
 |---|---|---|---|
-| `DockView` | 122 | `col.setOnClickListener(v -> launch(component))` | dock slot |
-| `DockView` | 144 | `plus.setOnClickListener` | add-slot |
-| `DockView` | (Task 3) | `actionRow`'s `row.setOnClickListener` | covers all 3 popup rows at once |
+| `DockView` | 128 | `col.setOnClickListener(v -> launch(component))` | dock slot |
+| `DockView` | 153 | `plus.setOnClickListener` | add-slot |
+| `DockView` | 206 | `actionRow`'s `row.setOnClickListener(v -> onClick.run())` | covers all 3 popup rows at once |
 | `DrawerPanel` | 120 | `listView.setOnItemClickListener` | tick before the `instanceof` check |
 | `DrawerPanel` | 175 | `homeButton.setOnClickListener` | |
 | `DrawerPanel` | 242 | `close.setOnClickListener` | delete category |
 | `DrawerPanel` | 247 | `chip.setOnClickListener` | category tab |
 | `DrawerPanel` | 259 | `plus.setOnClickListener` | new category |
 | `DrawerPanel` | 428 | `row.setOnClickListener(v -> onClick.run())` | `actionRow`; covers all quick-action rows |
-| `SettingsPanel` | 155 | `close.setOnClickListener` | |
-| `SettingsPanel` | 319 | `card.setOnClickListener` | palette card |
-| `SettingsPanel` | 391 | `row.setOnClickListener` | |
-| `SettingsPanel` | 430 | `clear.setOnClickListener` | |
-| `SettingsPanel` | 460 | `chip.setOnClickListener` | |
-| `SettingsPanel` | 579 | `row.setOnClickListener` | dock row |
-| `SettingsPanel` | 698 | `row.setOnClickListener(v -> onFix.run())` | permission row; keep the `if (!granted …)` guard |
-| `SettingsPanel` | 750 | `chip.setOnClickListener(v -> onClick.run())` | shared chip helper |
-| `SettingsPanel` | 771 | `toggle.setOnCheckedChangeListener(onChange)` | wrap: `checked -> { tick(); onChange.accept(checked); }` |
+| `SettingsPanel` | 158 | `close.setOnClickListener` | |
+| `SettingsPanel` | 328 | `card.setOnClickListener` | palette card |
+| `SettingsPanel` | 400 | `row.setOnClickListener` | |
+| `SettingsPanel` | 439 | `clear.setOnClickListener` | |
+| `SettingsPanel` | 469 | `chip.setOnClickListener` | |
+| `SettingsPanel` | 603 | `row.setOnClickListener` | dock row |
+| `SettingsPanel` | 722 | `row.setOnClickListener(v -> onFix.run())` | permission row; keep the `if (!granted …)` guard |
+| `SettingsPanel` | 774 | `chip.setOnClickListener(v -> onClick.run())` | shared chip helper |
+| `SettingsPanel` | 795 | `toggle.setOnCheckedChangeListener(onChange)` | wrap: `checked -> { tick(); onChange.accept(checked); }` |
 | `BottomSheet` | 46 | `scrim.setOnClickListener(v -> close())` | |
 | `BottomSheet` | 78 | `done.setOnClickListener` | |
 | `BottomSheet` | 206 | `row.setOnClickListener(v -> onClick.run())` | sheet row |
@@ -1466,7 +1468,7 @@ lambda body. Where a lambda is a single expression, convert it to a block:
 | `CoffeeButton` | 80 | `setOnClickListener(v -> onClick())` | |
 | `ScreenTimePanel` | 225 | `close.setOnClickListener` | |
 
-**Do NOT add `tick()` to `LimitSlider` lines 80 and 81** (`minus`/`plus`). Both
+**Do NOT add `tick()` to `LimitSlider` lines 80 and 81** (verified still 80-81 at `1d6a2ba`) (`minus`/`plus`). Both
 call `setValue`, which already ticks on a detent change in Step 4 — ticking here
 as well would fire the vibrator twice for one button press. This is the only
 listener in the app that routes through another ticking method.
