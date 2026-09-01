@@ -45,7 +45,6 @@ public final class SettingsPanel extends FrameLayout {
     public void setHaptics(Haptics haptics) { this.haptics = haptics; }
 
     private void tick() { if (haptics != null) haptics.click(); }
-    private void thud() { if (haptics != null) haptics.longPress(); }
 
     public interface DockActionListener {
         void onReplace(int slotIndex);

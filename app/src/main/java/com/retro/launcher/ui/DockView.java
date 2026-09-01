@@ -140,6 +140,7 @@ public final class DockView extends LinearLayout {
         // click listener, so a listener on the parent would never see it.
         final float[] point = AnchoredPopup.trackTouchPoint(col);
         col.setOnLongClickListener(v -> {
+            thud();
             showSlotActions(v, component, index, point);
             return true;
         });

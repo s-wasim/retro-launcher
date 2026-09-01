@@ -137,6 +137,7 @@ public final class DrawerPanel extends FrameLayout {
             if (item instanceof AppEntry) launch((AppEntry) item);
         });
         listView.setOnItemLongClickListener((AdapterView<?> parent, View v, int position, long id) -> {
+            thud();
             Object item = adapter.getItem(position);
             if (item instanceof AppEntry) { showAppActions((AppEntry) item, v); return true; }
             return false;
@@ -256,7 +257,7 @@ public final class DrawerPanel extends FrameLayout {
             if (palette != null) close.setTextColor(palette.a);
             close.setOnClickListener(v -> { tick(); deleteCategory(name); });
             chip.addView(close);
-            chip.setOnLongClickListener(v -> { openMembershipSheet(name); return true; });
+            chip.setOnLongClickListener(v -> { thud(); openMembershipSheet(name); return true; });
         }
 
         chip.setOnClickListener(v -> { tick(); activeTab = name; rebuildTabs(); applyFilter(); });

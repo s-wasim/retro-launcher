@@ -31,7 +31,6 @@ public final class BottomSheet extends FrameLayout {
     public void setHaptics(Haptics haptics) { this.haptics = haptics; }
 
     private void tick() { if (haptics != null) haptics.click(); }
-    private void thud() { if (haptics != null) haptics.longPress(); }
 
     private final Metrics metrics;
     private final TextView titleView;

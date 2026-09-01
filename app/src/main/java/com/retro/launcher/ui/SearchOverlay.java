@@ -47,7 +47,6 @@ public final class SearchOverlay extends FrameLayout {
     public void setHaptics(Haptics haptics) { this.haptics = haptics; }
 
     private void tick() { if (haptics != null) haptics.click(); }
-    private void thud() { if (haptics != null) haptics.longPress(); }
 
     /** Enough to cover the app you meant without turning into a second
      *  drawer — that is what the drawer is for. */
