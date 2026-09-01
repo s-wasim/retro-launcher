@@ -1294,7 +1294,7 @@ and a listener field beside the other listeners:
 
     public void setOnHapticsChanged(java.util.function.Consumer<Boolean> listener) {
         this.onHapticsChanged = listener;
-        buildFeedbackSection();
+        rebuildFeedbackSection();
     }
 ```
 
@@ -1315,13 +1315,19 @@ so the block reads:
         content.addView(permSection = section());
 ```
 
-Add the builder, modelled on the existing section builders — locate the method that builds `tempSection` (it starts `tempSection.addView(sectionHeader("TEMPERATURE"));` around line 481) and add this one beside it. `toggleRow(...)` is the existing private helper at line ~755; call it with the same argument order the other callers use:
+**Follow the file's existing naming convention exactly.** Every section in this
+class has a `rebuildXSection()` method — `rebuildPaletteSection` (line 234),
+`rebuildClockSection` (328), `rebuildTempSection` (477), `rebuildDockSection`
+(507), `rebuildPermissionsSection` (589) — and each begins by clearing its own
+section view. Name yours `rebuildFeedbackSection` and place it beside
+`rebuildTempSection`. `toggleRow(...)` is the existing private helper at
+line ~755:
 
 ```java
     /** One toggle, and deliberately its own section rather than a row under
      *  another: haptics are the only thing in the launcher that the user
      *  feels rather than sees. */
-    private void buildFeedbackSection() {
+    private void rebuildFeedbackSection() {
         feedbackSection.removeAllViews();
         if (palette == null) return;
         feedbackSection.addView(sectionHeader("FEEDBACK"));
@@ -1332,7 +1338,20 @@ Add the builder, modelled on the existing section builders — locate the method
     }
 ```
 
-Find whichever method rebuilds every section on a palette change (the one that calls `buildTempSection`-equivalents) and add `buildFeedbackSection();` to it, so the toggle re-colours with the rest.
+Then register it in `rebuildAll()` (line 224), which `setPalette` calls so every
+section re-colours together. Insert it in the same position the section occupies
+in the layout — between temp and dock:
+
+```java
+    private void rebuildAll() {
+        rebuildPaletteSection();
+        rebuildClockSection();
+        rebuildTempSection();
+        rebuildFeedbackSection();
+        rebuildDockSection();
+        rebuildPermissionsSection();
+    }
+```
 
 - [ ] **Step 7: Wire the toggle to the engine in `HomeActivity`**
 
