@@ -594,21 +594,24 @@ Add these imports to `DockView`:
 import android.widget.PopupWindow;
 ```
 
-Add a field beside `slotActionListener`:
+**Track the touch point per slot, not on the dock.** A `ViewGroup`'s own
+`OnTouchListener` fires only for events that reach the group itself — and each
+dock slot (`col`) has an `OnClickListener`, so it consumes `ACTION_DOWN` and the
+`DockView`'s listener would never see it. Attaching the tracker to `DockView`
+therefore leaves the point permanently at `{-1, -1}` and every popup falls back
+to the anchor corner, silently reproducing the bug this task exists to fix.
+
+So there is **no `touchPoint` field on `DockView`**. Instead, in `buildSlot`,
+attach the tracker to the slot itself and close over the array:
 
 ```java
-    /** Where the last gesture over this dock started, in screen coordinates.
-     *  {@code OnLongClickListener} carries no coordinates of its own. */
-    private final float[] touchPoint;
+        // Per slot, not on the dock: a slot consumes ACTION_DOWN via its own
+        // click listener, so a listener on the parent would never see it.
+        final float[] point = AnchoredPopup.trackTouchPoint(col);
 ```
 
-and initialise it at the end of the constructor, after `LauncherRoot.setNoSwipe(this);`:
-
-```java
-        touchPoint = AnchoredPopup.trackTouchPoint(this);
-```
-
-Note: `setNoSwipe` and `trackTouchPoint` both matter here and do not conflict — `trackTouchPoint`'s listener returns `false`, so it observes only.
+`col` keeps its `OnClickListener` and `OnLongClickListener` — `trackTouchPoint`'s
+listener returns `false`, so it observes without consuming.
 
 - [ ] **Step 2: Swap the slot's long-press for the popup**
 
@@ -625,10 +628,12 @@ with:
 
 ```java
         col.setOnLongClickListener(v -> {
-            showSlotActions(v, component, index);
+            showSlotActions(v, component, index, point);
             return true;
         });
 ```
+
+Place the `trackTouchPoint` line above this listener so `point` is in scope.
 
 - [ ] **Step 3: Add the popup builder**
 
@@ -641,7 +646,7 @@ Add these two methods to `DockView`, after `buildAddSlot()`:
      * as the drawer's box (DrawerPanel.showAppActions) — a long press should
      * mean one thing across the launcher.
      */
-    private void showSlotActions(View anchor, String component, int index) {
+    private void showSlotActions(View anchor, String component, int index, float[] touchPoint) {
         if (palette == null) return;
 
         LinearLayout box = new LinearLayout(getContext());
