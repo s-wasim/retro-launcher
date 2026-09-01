@@ -687,7 +687,7 @@ Add these two methods to `DockView`, after `buildAddSlot()`:
     }
 ```
 
-If `DrawerPanel.SIZE_TAB_CQW` / `SIZE_TAB_MIN` are not `public`, make them `public static final` in `DrawerPanel` — `SIZE_ROW_CQW` and `SIZE_ROW_MIN` are already reached from `SettingsPanel` the same way, so this follows the established pattern.
+`DrawerPanel.SIZE_TAB_CQW` and `SIZE_TAB_MIN` are already `public static final` (DrawerPanel.java:52) and are already reached this way from `LimitSlider`. No visibility change is needed.
 
 - [ ] **Step 4: Implement the two new callbacks in `HomeActivity`**
 
@@ -1354,6 +1354,7 @@ Mechanical but broad. The engine already exists; this task only adds calls.
 - Modify: `app/src/main/java/com/retro/launcher/ui/AlphaScrubber.java`
 - Modify: `app/src/main/java/com/retro/launcher/ui/LimitSlider.java`
 - Modify: `app/src/main/java/com/retro/launcher/ui/CoffeeButton.java`
+- Modify: `app/src/main/java/com/retro/launcher/ui/ScreenTimePanel.java`
 - Modify: `app/src/main/java/com/retro/launcher/HomeActivity.java`
 
 **Interfaces:**
@@ -1408,38 +1409,87 @@ Add `tick();` as the first statement of the lambda body at each of these:
 
 - [ ] **Step 4: Add `tick()` on detent and letter crossings**
 
-- `LimitSlider`: find where the slider snaps to a new detent (the point where the reported minute value changes during a drag) and call `tick();` there — once per crossing, not once per frame. If the class tracks a `lastReported` or equivalent, gate on it changing; if not, add `private int lastDetent = Integer.MIN_VALUE;` and gate on that.
-- `AlphaScrubber`: in the drag handler, where the letter under the finger changes. The class already computes a letter and calls `onLetterListener`; gate on the letter differing from the previously reported one and call `tick();` there. If it currently fires the listener on every move regardless, add `private char lastLetter = 0;` and gate both the listener and the tick on the change.
+- `LimitSlider` **already gates on change** — `setValue` (line ~118) computes `boolean changed = next != value;` and ends `if (changed) listener.accept(value);`. Add the tick inside that same branch, so it fires once per detent crossing rather than once per frame:
+
+```java
+        if (changed) {
+            tick();
+            listener.accept(value);
+        }
+```
+
+- `AlphaScrubber` **does not gate** — `fireLetterAt` (line 89) calls `listener.onLetter(...)` on every `ACTION_MOVE`, so the same letter fires repeatedly as the finger travels within one band. Add the gate, and tick on the crossing:
+
+```java
+    /** The last letter reported to the listener. ACTION_MOVE fires many times
+     *  within one letter's band; without this the list would be told to jump
+     *  to the same position dozens of times per drag, and the haptic would be
+     *  a continuous rattle rather than one tick per letter. */
+    private char lastLetter = 0;
+
+    private void fireLetterAt(float y) {
+        if (listener == null || getHeight() == 0) return;
+        int index = (int) (y / (getHeight() / 26f));
+        index = Math.max(0, Math.min(25, index));
+        char letter = (char) ('A' + index);
+        if (letter == lastLetter) return;
+        lastLetter = letter;
+        tick();
+        listener.onLetter(letter);
+    }
+```
+
+Reset `lastLetter = 0;` on `ACTION_DOWN` in `onTouchEvent`, so re-pressing the same letter still scrolls to it.
 
 - [ ] **Step 5: Hand the engine to every view in `HomeActivity`**
 
-In `onCreate`, after each view is constructed (and after `haptics` is constructed in Task 5), add:
+Three of the nine views are private children of another panel, so their parent
+forwards rather than `HomeActivity` reaching through it:
+
+| View | Owner | Reached by |
+|---|---|---|
+| `AlphaScrubber` | `DrawerPanel.scrubber` (private final, line 66) | `DrawerPanel.setHaptics` forwards |
+| `LimitSlider` | `ScreenTimePanel.slider` (private final, line 49) | `ScreenTimePanel.setHaptics` forwards |
+| `CoffeeButton` | `ScreenTimePanel.coffee` (private final, line 42) | `ScreenTimePanel.setHaptics` forwards |
+
+So `DrawerPanel.setHaptics` is not the plain setter from Step 1 — override it:
+
+```java
+    /** Forwards to the scrubber, which is this panel's private child. */
+    public void setHaptics(Haptics haptics) {
+        this.haptics = haptics;
+        scrubber.setHaptics(haptics);
+    }
+```
+
+and add the same shape to `ScreenTimePanel` (which needs the `haptics` field
+only if it has interactive rows of its own; if it does not, forward and skip
+the field):
+
+```java
+    public void setHaptics(Haptics haptics) {
+        slider.setHaptics(haptics);
+        coffee.setHaptics(haptics);
+    }
+```
+
+Then in `HomeActivity.onCreate`, after `haptics` is constructed and after each
+panel exists:
 
 ```java
         home.dock.setHaptics(haptics);
         home.clock.setHaptics(haptics);
-        home.coffee.setHaptics(haptics);
         drawer.setHaptics(haptics);
-        drawer.setScrubberHaptics(haptics);
         settings.setHaptics(haptics);
         sheet.setHaptics(haptics);
         search.setHaptics(haptics);
-        screenTime.setLimitSliderHaptics(haptics);
+        screenTime.setHaptics(haptics);
 ```
 
-`AlphaScrubber` and `LimitSlider` are private children of `DrawerPanel` and `ScreenTimePanel` respectively, so they are reached through their parents. Add to `DrawerPanel`:
-
-```java
-    public void setScrubberHaptics(Haptics haptics) { scrubber.setHaptics(haptics); }
-```
-
-and to `ScreenTimePanel` (naming the slider field as it is actually declared there):
-
-```java
-    public void setLimitSliderHaptics(Haptics haptics) { limitSlider.setHaptics(haptics); }
-```
-
-Adjust the field and variable names in the block above to match what `HomeActivity` and `HomePanel` actually call these views — `home.coffee`, `search` and `screenTime` are the expected names; if a name differs, use the real one rather than adding an alias.
+`home.clock` and `home.dock` are `public final` fields on `HomePanel` (lines
+33-34). `drawer`, `settings`, `screenTime`, `search` and `sheet` are
+`HomeActivity`'s own fields (lines 73-78). These names are verified against
+the current source — use them exactly.
 
 - [ ] **Step 6: Build**
 
@@ -2031,7 +2081,7 @@ Expected: `BUILD SUCCESSFUL`, the whole `core` suite green, with no reference to
 - [ ] **Step 5: Confirm the deletion is complete**
 
 Run: `grep -rn "resolveTotal" core app`
-Expected: no output. (`UsageRepository.dayTotal` still calls it at this point in the plan and will not compile — that is Task 9's job, and `:core:test` does not build the `app` module. If `grep` finds only the `UsageRepository` call site, that is expected here.)
+Expected: **exactly one hit** — `app/src/main/java/com/retro/launcher/data/UsageRepository.java`, in `dayTotal`. That call site is Task 9's to remove, and `:core:test` does not build the `app` module, so it does not break this task. Any hit inside `core/` means the deletion is incomplete: fix it before committing.
 
 - [ ] **Step 6: Commit**
 
@@ -2180,8 +2230,11 @@ public final class UsageRepository {
 
 - [ ] **Step 2: Confirm nothing else referenced the deleted internals**
 
-Run: `grep -rn "resolveTotal\|SCREEN\b\|\.screen\b\|Scan(" app/src/main/java/com/retro/launcher/`
-Expected: no hits in `UsageRepository` or its callers. `UsageRepository`'s public methods are unchanged, so `HomeActivity`, `ScreenTimePanel` and `WeekChart` need no edits.
+```bash
+grep -rn "resolveTotal" core app
+grep -rn "\.todayMillis(\|\.last7DaysMillis(\|\.mostUsedToday(\|\.pickupsToday(" app/src/main/java/com/retro/launcher/
+```
+Expected: the first prints nothing at all. The second prints only call sites in `HomeActivity` — `UsageRepository`'s public surface is unchanged by this task, so no caller needs editing. If a caller reached into the old private `Scan` type or the `SCREEN` pseudo-package, it will surface as a compile error in Step 3.
 
 - [ ] **Step 3: Build and run the full test suite**
 
@@ -3047,13 +3100,13 @@ grep -rn "resolveTotal\|GeneratedTileIcons\|PosterizedIcons\|USE_POSTERIZED_ICON
 ```
 Expected: no output.
 
-- [ ] **Step 5: Push and confirm CI is green**
+- [ ] **Step 5: Report — do not push**
 
-```bash
-git push origin V7
-gh run watch
-```
-Expected: the workflow runs on the `V7` push, tests pass, and a `build-<n>` release is published with an APK whose `versionCode` is `n + 1000`.
+Pushing `V7` triggers the workflow, which publishes a public GitHub release
+with an APK attached. That is an outward-facing side effect and is the
+owner's call, not this plan's. Stop here and report: the local build is
+green, the APK is signed and versioned, and `git push origin V7` is the one
+remaining command.
 
 ---
 
