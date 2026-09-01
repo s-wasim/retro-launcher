@@ -12,6 +12,7 @@ import android.widget.TextView;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.UsageMath;
+import com.retro.launcher.util.Haptics;
 
 import java.util.function.IntConsumer;
 
@@ -22,6 +23,14 @@ import java.util.function.IntConsumer;
  * behaviour here matches whatever the unit-tested core already guarantees.
  */
 public final class LimitSlider extends LinearLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     private final Metrics metrics;
     private final TextView minus, plus;
@@ -120,7 +129,10 @@ public final class LimitSlider extends LinearLayout {
         boolean changed = next != value;
         value = next;
         updateThumb();
-        if (changed) listener.accept(value);
+        if (changed) {
+            tick();
+            listener.accept(value);
+        }
     }
 
     public int getValue() { return value; }

@@ -188,6 +188,14 @@ public class HomeActivity extends Activity {
         root.setLongPressListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
 
+        home.dock.setHaptics(haptics);
+        home.clock.setHaptics(haptics);
+        drawer.setHaptics(haptics);
+        settings.setHaptics(haptics);
+        sheet.setHaptics(haptics);
+        search.setHaptics(haptics);
+        screenTime.setHaptics(haptics);
+
         home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
 
         setupScreen = new SetupScreen(this, metrics);

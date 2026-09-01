@@ -23,6 +23,7 @@ import com.retro.launcher.data.Prefs;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.theme.Tint;
 import com.retro.launcher.util.AppActions;
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Insets;
 import com.retro.launcher.util.Launch;
 
@@ -40,6 +41,19 @@ import java.util.TreeMap;
  * which replaces the prototype's per-app category sheet.
  */
 public final class DrawerPanel extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    /** Forwards to the scrubber, which is this panel's private child. */
+    public void setHaptics(Haptics haptics) {
+        this.haptics = haptics;
+        scrubber.setHaptics(haptics);
+    }
+
+    private void tick() { if (haptics != null) haptics.click(); }
+    private void thud() { if (haptics != null) haptics.longPress(); }
 
     /**
      * Shared type/icon scale for the app drawer and every sheet it opens
@@ -118,6 +132,7 @@ public final class DrawerPanel extends FrameLayout {
         LauncherRoot.setVerticalScroller(listView);
         listTouchPoint = AnchoredPopup.trackTouchPoint(listView);
         listView.setOnItemClickListener((AdapterView<?> parent, View v, int position, long id) -> {
+            tick();
             Object item = adapter.getItem(position);
             if (item instanceof AppEntry) launch((AppEntry) item);
         });
@@ -172,7 +187,7 @@ public final class DrawerPanel extends FrameLayout {
         int homePad = Math.round(metrics.cqw(3f));
         homeButton.setPadding(homePad, homePad, homePad, homePad);
         Tint.setRole(homeButton, Tint.ROLE_P);
-        homeButton.setOnClickListener(v -> { if (onHome != null) onHome.run(); });
+        homeButton.setOnClickListener(v -> { tick(); if (onHome != null) onHome.run(); });
         header.addView(homeButton);
 
         // The header sits above the no-swipe tab strip/list below it — mark
@@ -239,12 +254,12 @@ public final class DrawerPanel extends FrameLayout {
             close.setText(" ×");
             close.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
             if (palette != null) close.setTextColor(palette.a);
-            close.setOnClickListener(v -> deleteCategory(name));
+            close.setOnClickListener(v -> { tick(); deleteCategory(name); });
             chip.addView(close);
             chip.setOnLongClickListener(v -> { openMembershipSheet(name); return true; });
         }
 
-        chip.setOnClickListener(v -> { activeTab = name; rebuildTabs(); applyFilter(); });
+        chip.setOnClickListener(v -> { tick(); activeTab = name; rebuildTabs(); applyFilter(); });
         tabStrip.addView(chip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
@@ -257,6 +272,7 @@ public final class DrawerPanel extends FrameLayout {
         int padH = Math.round(metrics.cqw(3f));
         plus.setPadding(padH, 0, padH, 0);
         plus.setOnClickListener(v -> {
+            tick();
             if (palette != null) sheet.setPalette(palette);
             sheet.open("NEW CATEGORY");
             sheet.showAddField("CATEGORY NAME", this::addCategory);
@@ -425,7 +441,7 @@ public final class DrawerPanel extends FrameLayout {
         row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, metrics.textPx(SIZE_TAB_CQW, SIZE_TAB_MIN));
         row.setPadding(padH, padV, padH, padV);
         row.setTextColor(palette != null ? palette.ink : 0xFFFFFFFF);
-        row.setOnClickListener(v -> onClick.run());
+        row.setOnClickListener(v -> { tick(); onClick.run(); });
         return row;
     }
 

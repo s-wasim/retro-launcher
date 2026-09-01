@@ -9,6 +9,7 @@ import android.view.View;
 
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
+import com.retro.launcher.util.Haptics;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -25,6 +26,14 @@ import java.util.Set;
  * display clips (A/Z were getting cropped) — see DESIGN_NOTES §9 delta 22.
  */
 public final class AlphaScrubber extends View {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     /** Fraction of the row's available height the rail actually occupies —
      *  leaves clearance top and bottom so the end letters clear a circular
@@ -76,9 +85,21 @@ public final class AlphaScrubber extends View {
         return (alpha << 24) | (color & 0x00FFFFFF);
     }
 
+    /** The last letter reported to the listener. ACTION_MOVE fires many times
+     *  within one letter's band; without this the list would be told to jump
+     *  to the same position dozens of times per drag, and the haptic would be
+     *  a continuous rattle rather than one tick per letter. */
+    private char lastLetter = 0;
+
     @Override public boolean onTouchEvent(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                // A new gesture may start on the same letter the last one
+                // ended on, and that still has to scroll there — so the gate
+                // resets per gesture, not per view.
+                lastLetter = 0;
+                fireLetterAt(e.getY());
+                return true;
             case MotionEvent.ACTION_MOVE:
                 fireLetterAt(e.getY());
                 return true;
@@ -90,6 +111,10 @@ public final class AlphaScrubber extends View {
         if (listener == null || getHeight() == 0) return;
         int index = (int) (y / (getHeight() / 26f));
         index = Math.max(0, Math.min(25, index));
-        listener.onLetter((char) ('A' + index));
+        char letter = (char) ('A' + index);
+        if (letter == lastLetter) return;
+        lastLetter = letter;
+        tick();
+        listener.onLetter(letter);
     }
 }

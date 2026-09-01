@@ -23,6 +23,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
 import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Launch;
 
 import java.util.ArrayList;
@@ -38,6 +39,15 @@ import java.util.List;
  * same place. Nothing is shown until something is typed.
  */
 public final class SearchOverlay extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
+    private void thud() { if (haptics != null) haptics.longPress(); }
 
     /** Enough to cover the app you meant without turning into a second
      *  drawer — that is what the drawer is for. */
@@ -68,7 +78,7 @@ public final class SearchOverlay extends FrameLayout {
         LauncherRoot.setNoSwipe(this);
         // Clickable so taps never reach the panel underneath, and a tap on the
         // empty backdrop dismisses — the same way the double tap opened it.
-        setOnClickListener(v -> close());
+        setOnClickListener(v -> { tick(); close(); });
 
         columnPad = Math.round(metrics.cqw(6f));
 
@@ -283,7 +293,7 @@ public final class SearchOverlay extends FrameLayout {
                 metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
         int padV = Math.round(metrics.cqw(3f));
         r.setPadding(0, padV, 0, padV);
-        r.setOnClickListener(v -> onTap.run());
+        r.setOnClickListener(v -> { tick(); onTap.run(); });
         // Full width, so the tap target is the row and not just the glyphs.
         r.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,

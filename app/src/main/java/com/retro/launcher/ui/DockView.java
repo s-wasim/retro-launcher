@@ -18,6 +18,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,6 +30,15 @@ import java.util.List;
  * uses, so a dock tile and its drawer row are the same icon.
  */
 public final class DockView extends LinearLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
+    private void thud() { if (haptics != null) haptics.longPress(); }
 
     private static final int MAX_SLOTS = 5;
 
@@ -125,7 +135,7 @@ public final class DockView extends LinearLayout {
         col.addView(tile);
         col.addView(caption);
 
-        col.setOnClickListener(v -> launch(component));
+        col.setOnClickListener(v -> { tick(); launch(component); });
         // Per slot, not on the dock: a slot consumes ACTION_DOWN via its own
         // click listener, so a listener on the parent would never see it.
         final float[] point = AnchoredPopup.trackTouchPoint(col);
@@ -151,6 +161,7 @@ public final class DockView extends LinearLayout {
         plus.setLayoutParams(new LinearLayout.LayoutParams(
                 Math.round(metrics.cqw(13f)), Math.round(metrics.cqw(13f))));
         plus.setOnClickListener(v -> {
+            tick();
             if (slotActionListener != null) slotActionListener.onAdd();
         });
         return plus;
@@ -203,7 +214,7 @@ public final class DockView extends LinearLayout {
                 metrics.textPx(DrawerPanel.SIZE_TAB_CQW, DrawerPanel.SIZE_TAB_MIN));
         row.setPadding(padH, padV, padH, padV);
         row.setTextColor(palette.ink);
-        row.setOnClickListener(v -> onClick.run());
+        row.setOnClickListener(v -> { tick(); onClick.run(); });
         return row;
     }
 

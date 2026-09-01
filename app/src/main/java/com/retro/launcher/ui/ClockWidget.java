@@ -16,6 +16,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Launch;
 
 import java.util.Calendar;
@@ -31,6 +32,14 @@ import java.util.Calendar;
  * first.
  */
 public final class ClockWidget extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     private final TextView timeView;
     private final TextView dateView;
@@ -71,9 +80,9 @@ public final class ClockWidget extends FrameLayout {
 
         LauncherRoot.setNoSwipe(this);
 
-        timeView.setOnClickListener(v -> tap(onTimeTap, this::openClock));
-        dateView.setOnClickListener(v -> tap(onDateTap, this::openCalendar));
-        weatherView.setOnClickListener(v -> tap(onWeatherTap, this::openWeather));
+        timeView.setOnClickListener(v -> { tick(); tap(onTimeTap, this::openClock); });
+        dateView.setOnClickListener(v -> { tick(); tap(onDateTap, this::openCalendar); });
+        weatherView.setOnClickListener(v -> { tick(); tap(onWeatherTap, this::openWeather); });
     }
 
     /** Clock apps that ship without declaring ACTION_SHOW_ALARMS, in rough
