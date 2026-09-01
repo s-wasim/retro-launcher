@@ -1409,24 +1409,54 @@ For `ClockWidget`, `AlphaScrubber`, `LimitSlider` and `CoffeeButton`, `thud()` i
 
 - [ ] **Step 2: Add `tick()` to every tap listener**
 
-Add `tick();` as the first statement of the lambda body at each of these:
+Every site below was enumerated from the current source — line numbers are as
+of commit `4262124`, and the listener text is quoted so you can find each one
+even if a line has shifted. Add `tick();` as the **first** statement of the
+lambda body. Where a lambda is a single expression, convert it to a block:
+`v -> launch(component)` becomes `v -> { tick(); launch(component); }`.
 
-- `DockView`: `col.setOnClickListener(v -> launch(component));` → `col.setOnClickListener(v -> { tick(); launch(component); });`
-- `DockView`: the `plus.setOnClickListener` in `buildAddSlot`
-- `DockView`: each of the three `actionRow(...)` runnables added in Task 3 — instead, add `tick();` inside `actionRow`'s own `row.setOnClickListener(v -> { tick(); onClick.run(); });`
-- `DrawerPanel`: `listView.setOnItemClickListener(...)` — add `tick();` before the `instanceof` check
-- `DrawerPanel`: `homeButton.setOnClickListener`, `close.setOnClickListener` (delete-category), `chip.setOnClickListener` (tab chip), `plus.setOnClickListener` (new category), and `actionRow`'s `row.setOnClickListener`
-- `SettingsPanel`: every `setOnClickListener` on a palette card, chip, dock row or permission row, and the `toggleRow` helper's `PixelToggle` — for the toggle, add `tick();` as the first statement of the `onChange` consumer passed in, i.e. inside `toggleRow` wrap the caller's consumer: `toggle.setOnCheckedChangeListener(checked -> { tick(); onChange.accept(checked); });`
-- `BottomSheet`: the row `setOnClickListener` inside `addRow`
-- `SearchOverlay`: the result-row `setOnClickListener`, and the web-search row
-- `ClockWidget`: all three of `timeView`, `dateView`, `weatherView` `setOnClickListener`s — add `tick();` before the existing `tap(...)` call
-- `CoffeeButton`: its `setOnClickListener`
+| File | Line | Listener | Note |
+|---|---|---|---|
+| `DockView` | 122 | `col.setOnClickListener(v -> launch(component))` | dock slot |
+| `DockView` | 144 | `plus.setOnClickListener` | add-slot |
+| `DockView` | (Task 3) | `actionRow`'s `row.setOnClickListener` | covers all 3 popup rows at once |
+| `DrawerPanel` | 120 | `listView.setOnItemClickListener` | tick before the `instanceof` check |
+| `DrawerPanel` | 175 | `homeButton.setOnClickListener` | |
+| `DrawerPanel` | 242 | `close.setOnClickListener` | delete category |
+| `DrawerPanel` | 247 | `chip.setOnClickListener` | category tab |
+| `DrawerPanel` | 259 | `plus.setOnClickListener` | new category |
+| `DrawerPanel` | 428 | `row.setOnClickListener(v -> onClick.run())` | `actionRow`; covers all quick-action rows |
+| `SettingsPanel` | 155 | `close.setOnClickListener` | |
+| `SettingsPanel` | 319 | `card.setOnClickListener` | palette card |
+| `SettingsPanel` | 391 | `row.setOnClickListener` | |
+| `SettingsPanel` | 430 | `clear.setOnClickListener` | |
+| `SettingsPanel` | 460 | `chip.setOnClickListener` | |
+| `SettingsPanel` | 579 | `row.setOnClickListener` | dock row |
+| `SettingsPanel` | 698 | `row.setOnClickListener(v -> onFix.run())` | permission row; keep the `if (!granted …)` guard |
+| `SettingsPanel` | 750 | `chip.setOnClickListener(v -> onClick.run())` | shared chip helper |
+| `SettingsPanel` | 771 | `toggle.setOnCheckedChangeListener(onChange)` | wrap: `checked -> { tick(); onChange.accept(checked); }` |
+| `BottomSheet` | 46 | `scrim.setOnClickListener(v -> close())` | |
+| `BottomSheet` | 78 | `done.setOnClickListener` | |
+| `BottomSheet` | 206 | `row.setOnClickListener(v -> onClick.run())` | sheet row |
+| `BottomSheet` | 214 | `addButton.setOnClickListener` | |
+| `SearchOverlay` | 71 | `setOnClickListener(v -> close())` | scrim dismiss |
+| `SearchOverlay` | 286 | `r.setOnClickListener(v -> onTap.run())` | result row |
+| `ClockWidget` | 74 | `timeView.setOnClickListener` | |
+| `ClockWidget` | 75 | `dateView.setOnClickListener` | |
+| `ClockWidget` | 76 | `weatherView.setOnClickListener` | |
+| `CoffeeButton` | 80 | `setOnClickListener(v -> onClick())` | |
+| `ScreenTimePanel` | 225 | `close.setOnClickListener` | |
 
-- [ ] **Step 3: Add `thud()` to the long-press surfaces**
+**Do NOT add `tick()` to `LimitSlider` lines 80 and 81** (`minus`/`plus`). Both
+call `setValue`, which already ticks on a detent change in Step 4 — ticking here
+as well would fire the vibrator twice for one button press. This is the only
+listener in the app that routes through another ticking method.
 
-- `DrawerPanel`: `listView.setOnItemLongClickListener` — `thud();` before `showAppActions(...)`
-- `DrawerPanel`: `chip.setOnLongClickListener` (category tab) — `thud();` before `openMembershipSheet(name)`
-- `DockView`: `col.setOnLongClickListener` — `thud();` before `showSlotActions(...)`
+The spec's §2 enumeration ("dock slots, drawer rows, tab chips, …") is
+illustrative, not exhaustive; its governing clause is "every interactive
+listener". Close buttons and scrim-dismiss taps are therefore included: a
+launcher where some taps buzz and others do not feels broken in a way that is
+harder to diagnose than one that is uniformly silent.
 
 - [ ] **Step 4: Add `tick()` on detent and letter crossings**
 
