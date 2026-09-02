@@ -170,6 +170,7 @@ public class HomeActivity extends Activity {
         // reading instead. The repository's 10-minute floor means leaning on
         // it cannot turn into a poll.
         home.clock.setOnNoWeatherApp(() -> weatherRepository.refresh(true, this::refreshTime));
+        home.clock.setOnWeatherLongPress(() -> weatherRepository.refresh(true, this::refreshTime));
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
@@ -426,8 +427,10 @@ public class HomeActivity extends Activity {
     }
 
     private boolean hasLocationPermission() {
-        return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
+        return checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasUsageAccess() {
@@ -451,9 +454,13 @@ public class HomeActivity extends Activity {
         home.setDefaultLauncherPromptVisible(!defaultLauncher);
     }
 
+    /** Both in one prompt. The system shows a single dialog with a
+     *  precise/approximate choice; granting only approximate still works,
+     *  which is why LocationSource.hasPermission accepts either. */
     private void requestLocation() {
-        requestPermissions(
-                new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+        requestPermissions(new String[]{
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
     }
 
     /**

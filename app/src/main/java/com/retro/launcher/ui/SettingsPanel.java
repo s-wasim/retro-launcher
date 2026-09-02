@@ -665,7 +665,7 @@ public final class SettingsPanel extends FrameLayout {
         permSection.addView(defaultRow);
 
         TextView caption = new TextView(getContext());
-        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
+        caption.setText("WEATHER NEEDS PRECISE LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
                 + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
                 + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
                 + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "

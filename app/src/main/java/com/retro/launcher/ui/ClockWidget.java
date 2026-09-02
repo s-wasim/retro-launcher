@@ -40,6 +40,7 @@ public final class ClockWidget extends FrameLayout {
     public void setHaptics(Haptics haptics) { this.haptics = haptics; }
 
     private void tick() { if (haptics != null) haptics.click(); }
+    private void thud() { if (haptics != null) haptics.longPress(); }
 
     private final TextView timeView;
     private final TextView dateView;
@@ -53,6 +54,7 @@ public final class ClockWidget extends FrameLayout {
     private Calendar lastTime;
 
     private Runnable onTimeTap, onDateTap, onWeatherTap, onNoWeatherApp;
+    private Runnable onWeatherLongPress;
 
     public ClockWidget(Context context) {
         super(context);
@@ -83,6 +85,11 @@ public final class ClockWidget extends FrameLayout {
         timeView.setOnClickListener(v -> { tick(); tap(onTimeTap, this::openClock); });
         dateView.setOnClickListener(v -> { tick(); tap(onDateTap, this::openCalendar); });
         weatherView.setOnClickListener(v -> { tick(); tap(onWeatherTap, this::openWeather); });
+        weatherView.setOnLongClickListener(v -> {
+            thud();
+            if (onWeatherLongPress != null) onWeatherLongPress.run();
+            return true;
+        });
     }
 
     /** Clock apps that ship without declaring ACTION_SHOW_ALARMS, in rough
@@ -166,6 +173,11 @@ public final class ClockWidget extends FrameLayout {
     /** Runs when the weather region was tapped and no weather app is
      *  installed to open. */
     public void setOnNoWeatherApp(Runnable r) { this.onNoWeatherApp = r; }
+
+    /** Long-press always forces a fresh reading, whether or not a weather app
+     *  is installed — the tap is for opening one, and there was no gesture
+     *  that simply meant "go and look again". */
+    public void setOnWeatherLongPress(Runnable r) { this.onWeatherLongPress = r; }
 
     public void setPalette(Palette p) {
         background.setColor(p.veil());
