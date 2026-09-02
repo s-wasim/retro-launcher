@@ -38,11 +38,10 @@ import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.data.WeatherRepository;
-import com.retro.launcher.icons.GeneratedTileIcons;
 import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
-import com.retro.launcher.icons.PosterizedIcons;
+import com.retro.launcher.icons.PixelArtIcons;
 import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
@@ -62,10 +61,6 @@ import java.util.Calendar;
 import java.util.List;
 
 public class HomeActivity extends Activity {
-
-    /** Tier 2 gate switch — see design spec §3.4. Flip and re-measure via
-     *  the "IconBench" logcat tag, then delete whichever loses. */
-    private static final boolean USE_POSTERIZED_ICONS = false;
 
     private static final int REQ_LOCATION = 1;
 
@@ -124,10 +119,8 @@ public class HomeActivity extends Activity {
 
         appRepository = new AppRepository(getPackageManager(), prefs);
         IconCache iconCache = new IconCache();
-        IconSource rawIcons = USE_POSTERIZED_ICONS
-                ? new PosterizedIcons(getPackageManager(), iconCache)
-                : new GeneratedTileIcons(iconCache);
-        IconSource icons = new InstrumentedIconSource(rawIcons, USE_POSTERIZED_ICONS ? "posterized" : "generated");
+        IconSource icons = new InstrumentedIconSource(
+                new PixelArtIcons(getPackageManager(), iconCache), "pixart");
 
         sky = new SkyView(this);
 

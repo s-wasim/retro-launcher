@@ -6,10 +6,11 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
 
 /**
- * The Tier 2 decision seam (design spec §3.4). Two implementations exist —
- * {@link GeneratedTileIcons} and {@link PosterizedIcons} — wired behind a
- * debug toggle so the owner can measure frame time and drawer-scroll feel
- * before picking one. Whichever loses gets deleted, not left as dead weight.
+ * How an app becomes a bitmap. One implementation —
+ * {@link PixelArtIcons} — and one debug-only measuring wrapper,
+ * {@link InstrumentedIconSource}. The seam stays because the drawer, the dock
+ * and the search overlay all draw through it, and swapping the implementation
+ * for a measurement or an experiment should not touch any of them.
  */
 public interface IconSource {
     Bitmap iconFor(AppEntry app, Palette palette, int sizePx);
