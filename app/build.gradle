@@ -10,8 +10,14 @@ android {
         // drops devices for nothing.
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName "0.1"
+        // Frozen at 1 through V6, which is half of why "App not installed"
+        // appeared on every update: the package manager saw every build as
+        // the same version. CI's run number is monotonic; the +1000 offset
+        // puts even the first V7 build far above the installed 1 regardless
+        // of what the run number happens to be. A local build gets exactly
+        // 1000, which is fine — local builds are not what gets updated over.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger() + 1000
+        versionName "1.0.0"
         vectorDrawables.useSupportLibrary false
     }
 
@@ -20,14 +26,32 @@ android {
         localeFilters += ['en']
     }
 
+    // The other half of "App not installed". CI runs on a fresh
+    // ubuntu-latest runner, which generates a brand-new ~/.gradle/debug.keystore
+    // on every run, so consecutive builds were signed by different keys and
+    // Android refuses an update whose certificate does not match. This
+    // keystore is committed so every build — CI or local — shares one
+    // signature. A debug keystore is a well-known key pair by design and
+    // carries no security value; see BUILD.md.
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
         debug {
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
         }
         release {
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),

@@ -53,3 +53,28 @@ The workflow doesn't enforce the size budget automatically — check the
 "Report APK size" step's log against the numbers in `HANDOFF.md` §1
 yourself. If a change pushed it over budget, that's a signal to revert or
 rework the change rather than raise the budget.
+
+## Versioning and signing
+
+Two things have to stay true or sideloaded updates stop installing, and the
+failure looks identical in both cases: "App not installed", with no further
+detail.
+
+**`versionCode` is computed, not literal.** `app/build.gradle` derives it from
+`GITHUB_RUN_NUMBER + 1000`. CI's run number only ever increases, so every
+published build outranks the last. Do not replace this with a literal — a
+frozen `versionCode` means the package manager sees every build as the same
+version and refuses the install.
+
+**`app/debug.keystore` is committed on purpose.** Android refuses an update
+whose signing certificate does not match the installed app's. Without a
+committed keystore, each `ubuntu-latest` runner generates its own
+`~/.gradle/debug.keystore`, so no two CI builds share a signature. The file
+holds the platform's well-known debug credentials — alias `androiddebugkey`,
+store and key password `android` — which is a published key pair by design and
+carries no security value. Both `debug` and `release` build types point at it.
+
+**One-time step after upgrading from a pre-V7 build:** the previously installed
+launcher was signed with a runner-generated key that no longer exists.
+Uninstall it once before installing the first V7 APK. Every build after that
+updates cleanly.

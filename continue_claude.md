@@ -1,0 +1,1 @@
+When you pick this up, re-enter with the subagent-driven-development skill and start at Task 7 — the resume doc has the BASE commit, the task/commit table, all 17 rulings, and the toolchain invocation.

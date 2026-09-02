@@ -14,6 +14,7 @@ import android.widget.TextView;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 
 /**
  * The dock-picker / category-picker overlay (DESIGN_NOTES §7e). One reusable
@@ -22,6 +23,14 @@ import com.retro.launcher.theme.Tint;
  * than split into two subclasses.
  */
 public final class BottomSheet extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     private final Metrics metrics;
     private final TextView titleView;
@@ -43,7 +52,7 @@ public final class BottomSheet extends FrameLayout {
 
         View scrim = new View(context);
         scrim.setBackgroundColor(0x8C000000);
-        scrim.setOnClickListener(v -> close());
+        scrim.setOnClickListener(v -> { tick(); close(); });
         addView(scrim, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
         panel = new LinearLayout(context);
@@ -75,7 +84,7 @@ public final class BottomSheet extends FrameLayout {
         done.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
         Tint.setRole(done, Tint.ROLE_P);
-        done.setOnClickListener(v -> close());
+        done.setOnClickListener(v -> { tick(); close(); });
         header.addView(done);
 
         ScrollView scroll = new ScrollView(context);
@@ -203,7 +212,7 @@ public final class BottomSheet extends FrameLayout {
             row.addView(marker);
         }
 
-        row.setOnClickListener(v -> onClick.run());
+        row.setOnClickListener(v -> { tick(); onClick.run(); });
         rows.addView(row);
     }
 
@@ -212,6 +221,7 @@ public final class BottomSheet extends FrameLayout {
         addField.setHint(hint);
         addField.setText("");
         addButton.setOnClickListener(v -> {
+            tick();
             String text = addField.getText().toString().trim();
             if (!text.isEmpty()) onAdd.accept(text);
             addField.setText("");

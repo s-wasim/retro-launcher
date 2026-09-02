@@ -3,6 +3,7 @@ package com.retro.launcher.core;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -103,17 +104,60 @@ public final class UsageMath {
     }
 
     /**
-     * Today's headline total. The device's own record of how long the screen
-     * was awake wins when there is one — minus the time spent looking at the
-     * launcher — and the locally reconstructed per-app sum is only used when
-     * the device reported nothing ({@code deviceMillis <= 0}). Never negative:
-     * the two readings come from different bookkeeping and a launcher total
-     * larger than the screen-on span means the device data is unusable, so it
-     * floors at zero rather than reporting a nonsense number.
+     * Coalesces overlapping or touching spans, per package, so no arrangement
+     * of events can make one minute count twice. Sorted by start within each
+     * package; package order across the result is not meaningful.
      */
-    public static long resolveTotal(long deviceMillis, long launcherMillis, long fallbackMillis) {
-        if (deviceMillis <= 0) return Math.max(0L, fallbackMillis);
-        return Math.max(0L, deviceMillis - launcherMillis);
+    public static List<Interval> merge(List<Interval> intervals) {
+        Map<String, List<Interval>> byPkg = new LinkedHashMap<>();
+        for (Interval iv : intervals) {
+            if (iv.endMillis <= iv.startMillis) continue;
+            byPkg.computeIfAbsent(iv.pkg, k -> new ArrayList<>()).add(iv);
+        }
+
+        List<Interval> out = new ArrayList<>();
+        for (Map.Entry<String, List<Interval>> entry : byPkg.entrySet()) {
+            List<Interval> spans = entry.getValue();
+            spans.sort((a, b) -> Long.compare(a.startMillis, b.startMillis));
+            long start = spans.get(0).startMillis;
+            long end = spans.get(0).endMillis;
+            for (int i = 1; i < spans.size(); i++) {
+                Interval iv = spans.get(i);
+                if (iv.startMillis <= end) {
+                    // Overlapping or exactly touching: extend rather than add.
+                    if (iv.endMillis > end) end = iv.endMillis;
+                } else {
+                    out.add(new Interval(entry.getKey(), start, end));
+                    start = iv.startMillis;
+                    end = iv.endMillis;
+                }
+            }
+            out.add(new Interval(entry.getKey(), start, end));
+        }
+        return out;
+    }
+
+    /**
+     * Clips every span to {@code windows}, keeping the span's package. Time
+     * a device spent with the screen off is not screen time, however
+     * confidently the event stream implies an app was foreground through it.
+     *
+     * <p>A span overlapping several windows produces several intervals. A
+     * span overlapping none disappears — including when {@code windows} is
+     * empty, which callers must therefore avoid passing when the real
+     * meaning is "screen state unknown"; {@link ForegroundSpans} guarantees a
+     * non-empty window list whenever the device reported no screen events.
+     */
+    public static List<Interval> intersect(List<Interval> spans, List<Interval> windows) {
+        List<Interval> out = new ArrayList<>();
+        for (Interval span : spans) {
+            for (Interval window : windows) {
+                long from = Math.max(span.startMillis, window.startMillis);
+                long to = Math.min(span.endMillis, window.endMillis);
+                if (to > from) out.add(new Interval(span.pkg, from, to));
+            }
+        }
+        return out;
     }
 
     public static int snapLimit(int minutes) {

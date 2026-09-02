@@ -35,6 +35,7 @@ public final class Prefs {
     public static final String K_MEMBERS  = "memberships";
     public static final String K_LIMIT    = "limit";
     public static final String K_HINT     = "hint";
+    public static final String K_HAPTIC  = "haptics";
 
     // Tier 5. The last good weather reading and the fix it was taken at, so a
     // cold start shows yesterday's number instead of "--°" while the first
@@ -61,6 +62,10 @@ public final class Prefs {
     public String  unit()      { return sp.getString(K_UNIT, "C"); }
     public int     limit()     { return sp.getInt(K_LIMIT, 240); }
     public boolean hintShown() { return sp.getBoolean(K_HINT, false); }
+
+    /** Default on: a launcher that never buzzes reads as broken, and the
+     *  toggle is one tap away in Settings for anyone who disagrees. */
+    public boolean haptics()   { return sp.getBoolean(K_HAPTIC, true); }
 
     /** Dock is stored as a newline-joined component list, max 5. */
     public List<String> dock() {

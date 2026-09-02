@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import android.view.ViewPropertyAnimator;
 import android.view.animation.PathInterpolator;
 
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Insets;
 
 /**
@@ -89,6 +90,15 @@ public final class LauncherRoot extends ViewGroup {
     private Runnable onDoubleTap;
     private Runnable onLongPress;
     private Runnable onStatusBarSwipe;
+
+    /** Null until HomeActivity supplies one; every call site null-checks. */
+    private Haptics haptics;
+
+    /** True between the first seize of a gesture and its end, so dragStart
+     *  runs once per gesture rather than once per frame. */
+    private boolean dragBuzzing;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
 
     public LauncherRoot(Context c) {
         super(c);
@@ -266,6 +276,7 @@ public final class LauncherRoot extends ViewGroup {
 
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                endDragBuzz();
                 if (tracking) release(dx, dy, w, h);   // clears `held` via goTo
                 else java.util.Arrays.fill(held, false);
                 axis = 0; tracking = false;
@@ -380,6 +391,24 @@ public final class LauncherRoot extends ViewGroup {
                 time.setAlpha(reveal(ty, h));
             }
         }
+
+        // Progress towards the snap threshold: 1 - reveal is 0 at rest and 1
+        // when the panel is fully pulled in, which is the direction the swell
+        // should follow.
+        if (haptics != null) {
+            float progress;
+            if (axis == AXIS_H) {
+                progress = view == VIEW_HOME
+                        ? Math.min(1f, Math.abs(dx) / Math.max(1f, w))
+                        : 1f - reveal(view == VIEW_SETTINGS
+                                ? clamp(dx, -w, 0) : clamp(dx, 0, w), w);
+            } else {
+                progress = view == VIEW_HOME
+                        ? Math.min(1f, Math.abs(dy) / Math.max(1f, h))
+                        : 1f - reveal(clamp(dy, 0, h), h);
+            }
+            haptics.dragProgress(progress);
+        }
     }
 
     /**
@@ -401,6 +430,10 @@ public final class LauncherRoot extends ViewGroup {
      * the panel judders between the finger and the animator.
      */
     private void seize(int slot, View panel) {
+        if (!dragBuzzing) {
+            dragBuzzing = true;
+            if (haptics != null) haptics.dragStart();
+        }
         ViewPropertyAnimator a = running[slot];
         if (a != null) {
             running[slot] = null;
@@ -408,6 +441,19 @@ public final class LauncherRoot extends ViewGroup {
         }
         held[slot] = true;
         if (panel.getVisibility() != VISIBLE) panel.setVisibility(VISIBLE);
+    }
+
+    /** A vibration must never outlive the drag that started it. Called from
+     *  the gesture's end, from detach, and from HomeActivity.onPause — a
+     *  gesture can be abandoned without ever producing an ACTION_UP. */
+    public void endDragBuzz() {
+        dragBuzzing = false;
+        if (haptics != null) haptics.dragEnd();
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        endDragBuzz();
     }
 
     private void release(float dx, float dy, int w, int h) {

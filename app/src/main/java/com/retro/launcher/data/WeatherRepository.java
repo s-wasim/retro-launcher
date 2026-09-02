@@ -19,6 +19,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * minutes but not the 10-minute floor, so no sequence of taps can turn this
  * into a poll. One attempt per window, and a failed attempt burns the window
  * exactly like a successful one: there are no retry storms.
+ * A fetch now begins by asking a provider for one current fix, falling back
+ * to the last known fix and then to the remembered one; the 10-minute floor
+ * bounds how often that can happen.
  *
  * <h3>When there is no reading</h3>
  * {@link #current} is never null, so the sky always has something to draw. It
@@ -83,26 +86,36 @@ public final class WeatherRepository {
         if (now - lastAttemptAt < FLOOR_MS) return;
         if (!force && reading != null && now - readingAt < FRESH_MS) return;
 
-        double[] fix = location.lastKnown();
-        if (fix != null) rememberFix(fix);
-        else fix = lastRememberedFix();
-        if (fix == null) return;   // never had a fix; nothing to ask about
-
         if (!inFlight.compareAndSet(false, true)) return;
         lastAttemptAt = now;
 
-        final double lat = fix[0], lon = fix[1];
-        new Thread(() -> {
-            final Weather fetched = source.fetch(lat, lon);
-            main.post(() -> {
+        // Stage one: ask a provider for a current fix. The attempt window is
+        // already burned above, so this costs at most one location request
+        // every ten minutes, and only when a fetch was going to happen anyway.
+        location.requestFresh(fresh -> {
+            double[] fix = fresh;
+            if (fix == null) fix = location.lastKnown();
+            if (fix != null) rememberFix(fix);
+            else fix = lastRememberedFix();
+
+            if (fix == null) {          // never had a fix; nothing to ask about
                 inFlight.set(false);
-                if (fetched == null) return;   // silent; the last good value stands
-                reading = fetched;
-                readingAt = System.currentTimeMillis();
-                persist();
-                if (onUpdated != null) onUpdated.run();
-            });
-        }, "weather-fetch").start();
+                return;
+            }
+
+            final double lat = fix[0], lon = fix[1];
+            new Thread(() -> {
+                final Weather fetched = source.fetch(lat, lon);
+                main.post(() -> {
+                    inFlight.set(false);
+                    if (fetched == null) return;   // silent; the last good value stands
+                    reading = fetched;
+                    readingAt = System.currentTimeMillis();
+                    persist();
+                    if (onUpdated != null) onUpdated.run();
+                });
+            }, "weather-fetch").start();
+        });
     }
 
     /**

@@ -37,6 +37,19 @@
             <action android:name="android.intent.action.UNINSTALL_PACKAGE" />
             <data android:scheme="package" />
         </intent>
+        <!-- ClockWidget.WEATHER_PACKAGES. On API 30+ an undeclared package is
+             invisible, so getLaunchIntentForPackage returned null for every
+             one of these and tapping the weather line could never open a
+             weather app — the tap was not broken, the visibility was. -->
+        <package android:name="com.google.android.apps.weather" />
+        <package android:name="com.sec.android.daemonapp" />
+        <package android:name="com.samsung.android.weather" />
+        <package android:name="com.miui.weather2" />
+        <package android:name="com.huawei.android.totemweather" />
+        <package android:name="com.coloros.weather2" />
+        <package android:name="com.oneplus.weather" />
+        <package android:name="com.weather.Weather" />
+        <package android:name="com.accuweather.android" />
     </queries>
 
     <!-- Exactly three, per HANDOFF.md §0 row 1, plus the one below added for
@@ -45,6 +58,13 @@
          below (DESIGN_NOTES §9 delta 19). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The weather fetch already sends exact coordinates; with only COARSE
+         the platform hands us a fix rounded to roughly a city block, and the
+         app never asks a provider for one at all. FINE plus
+         LocationSource.requestFresh is what makes the reading local. Both
+         are declared because the user may grant only approximate location,
+         and that must still work. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
@@ -52,6 +72,11 @@
     <!-- Swipe-down-from-status-bar-inset: normal protection, no runtime
          prompt. Undocumented reflection call, silent no-op if unavailable. -->
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+
+    <!-- Drag and tap feedback. Normal protection: granted at install, no
+         runtime prompt. The FEEDBACK toggle in Settings is the only gate,
+         and Haptics checks it on every entry point. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- The drawer's UNINSTALL row. Required since API 8.0 to drive the
          package-uninstall flow, and minSdk here is exactly 26. Also normal

@@ -38,11 +38,10 @@ import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.data.WeatherRepository;
-import com.retro.launcher.icons.GeneratedTileIcons;
 import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
-import com.retro.launcher.icons.PosterizedIcons;
+import com.retro.launcher.icons.PixelArtIcons;
 import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
@@ -55,6 +54,7 @@ import com.retro.launcher.ui.ScreenTimePanel;
 import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
+import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -62,13 +62,10 @@ import java.util.List;
 
 public class HomeActivity extends Activity {
 
-    /** Tier 2 gate switch — see design spec §3.4. Flip and re-measure via
-     *  the "IconBench" logcat tag, then delete whichever loses. */
-    private static final boolean USE_POSTERIZED_ICONS = false;
-
     private static final int REQ_LOCATION = 1;
 
     private LauncherRoot root;
+    private Haptics haptics;
     private SkyView sky;
     private HomePanel home;
     private DrawerPanel drawer;
@@ -112,6 +109,7 @@ public class HomeActivity extends Activity {
         goEdgeToEdge();
 
         prefs = new Prefs(this);
+        haptics = new Haptics(this, prefs.haptics());
         weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
         dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -121,14 +119,13 @@ public class HomeActivity extends Activity {
 
         appRepository = new AppRepository(getPackageManager(), prefs);
         IconCache iconCache = new IconCache();
-        IconSource rawIcons = USE_POSTERIZED_ICONS
-                ? new PosterizedIcons(getPackageManager(), iconCache)
-                : new GeneratedTileIcons(iconCache);
-        IconSource icons = new InstrumentedIconSource(rawIcons, USE_POSTERIZED_ICONS ? "posterized" : "generated");
+        IconSource icons = new InstrumentedIconSource(
+                new PixelArtIcons(getPackageManager(), iconCache), "pixart");
 
         sky = new SkyView(this);
 
         root = new LauncherRoot(this);
+        root.setHaptics(haptics);
         home = new HomePanel(this, metrics, prefs, icons);
         sheet = new BottomSheet(this, metrics);
         drawer = new DrawerPanel(this, metrics, prefs, appRepository, icons, sheet);
@@ -144,6 +141,7 @@ public class HomeActivity extends Activity {
             // to the same colours right now).
             settings.setPalette(palette);
         });
+        settings.setOnHapticsChanged(enabled -> haptics.setEnabled(enabled));
         settings.setDockActionListener(new SettingsPanel.DockActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
             @Override public void onAdd() { openDockSheet(-1); }
@@ -165,9 +163,12 @@ public class HomeActivity extends Activity {
         // reading instead. The repository's 10-minute floor means leaning on
         // it cannot turn into a poll.
         home.clock.setOnNoWeatherApp(() -> weatherRepository.refresh(true, this::refreshTime));
+        home.clock.setOnWeatherLongPress(() -> weatherRepository.refresh(true, this::refreshTime));
 
         home.dock.setOnSlotActionListener(new DockView.SlotActionListener() {
             @Override public void onReplace(int slotIndex) { openDockSheet(slotIndex); }
+            @Override public void onRemove(int slotIndex) { removeDockSlot(slotIndex); }
+            @Override public void onAppInfo(String component) { openAppInfo(component); }
             @Override public void onAdd() { openDockSheet(-1); }
         });
 
@@ -180,6 +181,14 @@ public class HomeActivity extends Activity {
         });
         root.setLongPressListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
+
+        home.dock.setHaptics(haptics);
+        home.clock.setHaptics(haptics);
+        drawer.setHaptics(haptics);
+        settings.setHaptics(haptics);
+        sheet.setHaptics(haptics);
+        search.setHaptics(haptics);
+        screenTime.setHaptics(haptics);
 
         home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
 
@@ -257,6 +266,33 @@ public class HomeActivity extends Activity {
         f.addAction(Intent.ACTION_PACKAGE_REMOVED);
         f.addDataScheme("package");
         return f;
+    }
+
+    /** Drop a pinned slot without going through the picker sheet — the sheet
+     *  is for choosing an app, and removal is not a choice of app. */
+    private void removeDockSlot(int slotIndex) {
+        List<String> next = new ArrayList<>(home.dock.entries());
+        if (slotIndex < 0 || slotIndex >= next.size()) return;
+        next.remove(slotIndex);
+        prefs.setDock(next);
+        home.dock.setEntries(next);
+        settings.setDockEntries(next);
+    }
+
+    /** The system's App Info page for a dock component. Same destination as
+     *  the drawer's MORE DETAILS row, reached without a drawer row to hang
+     *  an {@link AppEntry} off. */
+    private void openAppInfo(String component) {
+        int slash = component.indexOf('/');
+        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", pkg, null));
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            // A device with no Settings app to show. Nothing useful to do.
+        }
     }
 
     /** slotIndex -1 means "add"; otherwise the slot being replaced. */
@@ -384,8 +420,10 @@ public class HomeActivity extends Activity {
     }
 
     private boolean hasLocationPermission() {
-        return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
+        return checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasUsageAccess() {
@@ -409,9 +447,13 @@ public class HomeActivity extends Activity {
         home.setDefaultLauncherPromptVisible(!defaultLauncher);
     }
 
+    /** Both in one prompt. The system shows a single dialog with a
+     *  precise/approximate choice; granting only approximate still works,
+     *  which is why LocationSource.hasPermission accepts either. */
     private void requestLocation() {
-        requestPermissions(
-                new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+        requestPermissions(new String[]{
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
     }
 
     /**
@@ -627,6 +669,9 @@ public class HomeActivity extends Activity {
         super.onPause();
         ticker.removeCallbacks(minuteTick);
         sky.pause();
+        // A gesture interrupted by an app launch or the screen going off
+        // produces no ACTION_UP; without this the buzz would outlive it.
+        root.endDragBuzz();
     }
 
     @Override protected void onDestroy() {

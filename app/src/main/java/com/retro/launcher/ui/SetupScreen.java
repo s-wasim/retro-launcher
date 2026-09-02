@@ -14,8 +14,8 @@ import com.retro.launcher.core.Metrics;
  * First-run screen, shown once ahead of {@link HintOverlay}: one row per
  * optional permission, each opening the right grant flow.
  *
- * Usage Access feeds Screen Time; coarse location feeds the weather reading
- * (Tier 5). Continuing works with neither — no permission blocks the launcher
+ * Usage Access feeds Screen Time; a precise location fix feeds the weather
+ * reading (Tier 5). Continuing works with neither — no permission blocks the launcher
  * (spec §5, DESIGN_NOTES §9 row 10's permissions caption), and a skipped setup
  * stays recoverable from Settings' permissions block.
  */
@@ -60,7 +60,7 @@ public final class SetupScreen extends FrameLayout {
         column.addView(title);
 
         TextView body = new TextView(context);
-        body.setText("SCREEN TIME NEEDS USAGE ACCESS. WEATHER NEEDS A COARSE "
+        body.setText("SCREEN TIME NEEDS USAGE ACCESS. WEATHER NEEDS YOUR PRECISE "
                 + "LOCATION. YOU CAN SKIP BOTH AND GRANT THEM LATER FROM SETTINGS.");
         body.setTypeface(Typeface.MONOSPACE);
         body.setTextColor(0xFFAAAAAA);

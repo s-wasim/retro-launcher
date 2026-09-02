@@ -18,6 +18,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PixelGlyphs;
 import com.retro.launcher.core.PixelTile;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Launch;
 
 /**
@@ -30,6 +31,14 @@ import com.retro.launcher.util.Launch;
  * tap does nothing at all.
  */
 public final class CoffeeButton extends LinearLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     /**
      * ---- PLUG THE DONATION LINK IN HERE ----
@@ -77,7 +86,7 @@ public final class CoffeeButton extends LinearLayout {
         labelLp.leftMargin = Math.round(metrics.cqw(2f));
         addView(label, labelLp);
 
-        setOnClickListener(v -> onClick());
+        setOnClickListener(v -> { tick(); onClick(); });
     }
 
     private void onClick() {

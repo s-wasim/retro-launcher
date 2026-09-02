@@ -17,6 +17,7 @@ import com.retro.launcher.core.UsageMath;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
 
@@ -29,6 +30,18 @@ import java.util.ArrayList;
  * the rest of the settings surfaces.
  */
 public final class ScreenTimePanel extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) {
+        this.haptics = haptics;
+        slider.setHaptics(haptics);
+        coffee.setHaptics(haptics);
+    }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     private static final int MOST_USED_ROWS = 6;
 
@@ -222,7 +235,7 @@ public final class ScreenTimePanel extends FrameLayout {
         int closePad = Math.round(metrics.cqw(3f));
         close.setPadding(closePad, closePad, closePad, closePad);
         Tint.setRole(close, Tint.ROLE_P);
-        close.setOnClickListener(v -> onClose.run());
+        close.setOnClickListener(v -> { tick(); onClose.run(); });
         header.addView(close);
 
         // The header sits outside the no-swipe scroll content below it — mark

@@ -16,6 +16,7 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Launch;
 
 import java.util.Calendar;
@@ -32,6 +33,15 @@ import java.util.Calendar;
  */
 public final class ClockWidget extends FrameLayout {
 
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
+    private void thud() { if (haptics != null) haptics.longPress(); }
+
     private final TextView timeView;
     private final TextView dateView;
     private final TextView weatherView;
@@ -44,6 +54,7 @@ public final class ClockWidget extends FrameLayout {
     private Calendar lastTime;
 
     private Runnable onTimeTap, onDateTap, onWeatherTap, onNoWeatherApp;
+    private Runnable onWeatherLongPress;
 
     public ClockWidget(Context context) {
         super(context);
@@ -71,9 +82,14 @@ public final class ClockWidget extends FrameLayout {
 
         LauncherRoot.setNoSwipe(this);
 
-        timeView.setOnClickListener(v -> tap(onTimeTap, this::openClock));
-        dateView.setOnClickListener(v -> tap(onDateTap, this::openCalendar));
-        weatherView.setOnClickListener(v -> tap(onWeatherTap, this::openWeather));
+        timeView.setOnClickListener(v -> { tick(); tap(onTimeTap, this::openClock); });
+        dateView.setOnClickListener(v -> { tick(); tap(onDateTap, this::openCalendar); });
+        weatherView.setOnClickListener(v -> { tick(); tap(onWeatherTap, this::openWeather); });
+        weatherView.setOnLongClickListener(v -> {
+            thud();
+            if (onWeatherLongPress != null) onWeatherLongPress.run();
+            return true;
+        });
     }
 
     /** Clock apps that ship without declaring ACTION_SHOW_ALARMS, in rough
@@ -157,6 +173,11 @@ public final class ClockWidget extends FrameLayout {
     /** Runs when the weather region was tapped and no weather app is
      *  installed to open. */
     public void setOnNoWeatherApp(Runnable r) { this.onNoWeatherApp = r; }
+
+    /** Long-press always forces a fresh reading, whether or not a weather app
+     *  is installed — the tap is for opening one, and there was no gesture
+     *  that simply meant "go and look again". */
+    public void setOnWeatherLongPress(Runnable r) { this.onWeatherLongPress = r; }
 
     public void setPalette(Palette p) {
         background.setColor(p.veil());

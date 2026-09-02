@@ -21,6 +21,7 @@ import com.retro.launcher.core.Palettes;
 import com.retro.launcher.core.Weather;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.theme.Tint;
+import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -36,6 +37,14 @@ import java.util.function.Consumer;
  * whatever else depends on it (palette, clock, dock).
  */
 public final class SettingsPanel extends FrameLayout {
+
+    /** Null until HomeActivity supplies one. Every call site null-checks
+     *  rather than requiring construction order to guarantee it. */
+    private Haptics haptics;
+
+    public void setHaptics(Haptics haptics) { this.haptics = haptics; }
+
+    private void tick() { if (haptics != null) haptics.click(); }
 
     public interface DockActionListener {
         void onReplace(int slotIndex);
@@ -61,6 +70,7 @@ public final class SettingsPanel extends FrameLayout {
     private final LinearLayout paletteSection;
     private final LinearLayout clockSection;
     private final LinearLayout tempSection;
+    private final LinearLayout feedbackSection;
     private final LinearLayout dockSection;
     private final LinearLayout permSection;
 
@@ -68,6 +78,7 @@ public final class SettingsPanel extends FrameLayout {
     private Runnable onClose = () -> {};
     private DockActionListener dockListener;
     private PermissionActionListener permissionListener;
+    private java.util.function.Consumer<Boolean> onHapticsChanged;
 
     private Palette palette;
     private Weather weather;
@@ -104,6 +115,7 @@ public final class SettingsPanel extends FrameLayout {
         content.addView(paletteSection = section());
         content.addView(clockSection = section());
         content.addView(tempSection = section());
+        content.addView(feedbackSection = section());
         content.addView(dockSection = section());
         content.addView(permSection = section());
 
@@ -152,7 +164,7 @@ public final class SettingsPanel extends FrameLayout {
         int closePad = Math.round(metrics.cqw(3f));
         close.setPadding(closePad, closePad, closePad, closePad);
         Tint.setRole(close, Tint.ROLE_P);
-        close.setOnClickListener(v -> onClose.run());
+        close.setOnClickListener(v -> { tick(); onClose.run(); });
         header.addView(close);
 
         // The header sits outside the no-swipe scroll content below it — mark
@@ -178,6 +190,11 @@ public final class SettingsPanel extends FrameLayout {
     public void setOnPrefsChangedListener(Runnable r) { this.onPrefsChanged = r; }
     public void setDockActionListener(DockActionListener l) { this.dockListener = l; }
     public void setPermissionActionListener(PermissionActionListener l) { this.permissionListener = l; }
+
+    public void setOnHapticsChanged(java.util.function.Consumer<Boolean> listener) {
+        this.onHapticsChanged = listener;
+        rebuildFeedbackSection();
+    }
 
     public void setPalette(Palette p) {
         this.palette = p;
@@ -225,6 +242,7 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPaletteSection();
         rebuildClockSection();
         rebuildTempSection();
+        rebuildFeedbackSection();
         rebuildDockSection();
         rebuildPermissionsSection();
     }
@@ -317,6 +335,7 @@ public final class SettingsPanel extends FrameLayout {
         card.addView(ramp);
 
         card.setOnClickListener(v -> {
+            tick();
             prefs.putString(Prefs.K_PAL, auto ? PaletteResolver.AUTO : id);
             onPrefsChanged.run();
         });
@@ -389,6 +408,7 @@ public final class SettingsPanel extends FrameLayout {
         row.addView(preview);
 
         row.setOnClickListener(v -> {
+            tick();
             prefs.putInt(Prefs.K_FMT_IDX, idx);
             onPrefsChanged.run();
         });
@@ -428,6 +448,7 @@ public final class SettingsPanel extends FrameLayout {
         clear.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
         clear.setOnClickListener(v -> {
+            tick();
             prefs.putString(Prefs.K_CUSTOM, "");
             onPrefsChanged.run();
         });
@@ -458,6 +479,7 @@ public final class SettingsPanel extends FrameLayout {
             chipBg.setCornerRadius(metrics.cqw(1f));
             chip.setBackground(chipBg);
             chip.setOnClickListener(v -> {
+                tick();
                 prefs.putString(Prefs.K_CUSTOM, prefs.custom() + token);
                 onPrefsChanged.run();
             });
@@ -500,6 +522,21 @@ public final class SettingsPanel extends FrameLayout {
                 metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
         addTopMargin(caption, gap);
         tempSection.addView(caption);
+    }
+
+    // ---- FEEDBACK ------------------------------------------------------
+
+    /** One toggle, and deliberately its own section rather than a row under
+     *  another: haptics are the only thing in the launcher that the user
+     *  feels rather than sees. */
+    private void rebuildFeedbackSection() {
+        feedbackSection.removeAllViews();
+        if (palette == null) return;
+        feedbackSection.addView(sectionHeader("FEEDBACK"));
+        feedbackSection.addView(toggleRow("HAPTIC FEEDBACK", prefs.haptics(), checked -> {
+            prefs.putBool(Prefs.K_HAPTIC, checked);
+            if (onHapticsChanged != null) onHapticsChanged.accept(checked);
+        }));
     }
 
     // ---- DOCK --------------------------------------------------------
@@ -577,6 +614,7 @@ public final class SettingsPanel extends FrameLayout {
         row.addView(action);
 
         row.setOnClickListener(v -> {
+            tick();
             if (dockListener == null) return;
             if (empty) dockListener.onAdd();
             else dockListener.onReplace(slotIndex);
@@ -627,7 +665,7 @@ public final class SettingsPanel extends FrameLayout {
         permSection.addView(defaultRow);
 
         TextView caption = new TextView(getContext());
-        caption.setText("WEATHER NEEDS LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
+        caption.setText("WEATHER NEEDS PRECISE LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
                 + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
                 + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
                 + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "
@@ -695,7 +733,7 @@ public final class SettingsPanel extends FrameLayout {
         // Deliberately not marked no-swipe: LauncherRoot never intercepts a
         // tap, only a drag past 12dp, so the click is safe, and leaving the
         // row open means a sideways swipe across it still closes the panel.
-        if (!granted || tappableWhenGranted) row.setOnClickListener(v -> onFix.run());
+        if (!granted || tappableWhenGranted) row.setOnClickListener(v -> { tick(); onFix.run(); });
 
         return row;
     }
@@ -747,7 +785,7 @@ public final class SettingsPanel extends FrameLayout {
         bg.setStroke(Math.max(1, Math.round(metrics.cqw(0.6f))), selected ? palette.p : palette.ink);
         bg.setColor(selected ? ((0x2E << 24) | (palette.p & 0x00FFFFFF)) : 0x00000000);
         chip.setBackground(bg);
-        chip.setOnClickListener(v -> onClick.run());
+        chip.setOnClickListener(v -> { tick(); onClick.run(); });
         return chip;
     }
 
@@ -768,7 +806,7 @@ public final class SettingsPanel extends FrameLayout {
         PixelToggle toggle = new PixelToggle(getContext(), metrics);
         toggle.setPalette(palette);
         toggle.setChecked(checked);
-        toggle.setOnCheckedChangeListener(onChange);
+        toggle.setOnCheckedChangeListener(isChecked -> { tick(); onChange.accept(isChecked); });
         row.addView(toggle);
 
         return row;

@@ -65,15 +65,16 @@ public final class OpenMeteoWeather implements WeatherSource {
     }
 
     /**
-     * Three decimal places — about 110m.
+     * Four decimal places — about 11m.
      *
-     * That is far finer than weather varies and coarser than the fix we were
-     * given, so it trims precision we have no use for before it leaves the
-     * device. Locale.US because a device set to a comma-decimal locale would
-     * otherwise send "52,52" and get a 400 back.
+     * Three (~110m) was coarse enough to move a fix to the next
+     * neighbourhood, which is visible on a coastline or in a valley. Still far
+     * more precision than we send anywhere else, and the API's own resolution
+     * is much coarser than either. Locale.US because a device set to a
+     * comma-decimal locale would otherwise send "52,52" and get a 400 back.
      */
     private static String coord(double v) {
-        return String.format(Locale.US, "%.3f", v);
+        return String.format(Locale.US, "%.4f", v);
     }
 
     private static String read(InputStream in) throws Exception {
