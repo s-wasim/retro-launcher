@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main, V7]
+    branches: ['**']
   workflow_dispatch:
 
 concurrency:
@@ -30,11 +30,30 @@ jobs:
           # two have to be changed together.
           gradle-version: '8.14.5'
 
+      - uses: android-actions/setup-android@v3
+
+      - name: Install build-tools
+        run: sdkmanager "build-tools;36.0.0"
+
       - name: Unit tests
         run: gradle :core:test --no-daemon
 
       - name: Build
         run: gradle assembleDebug --no-daemon
+
+      - name: Verify signer
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          FINGERPRINT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep 'Signer #1 certificate SHA-256 digest' | awk '{print $NF}' | tr 'a-f' 'A-F' \
+            | sed 's/\(..\)/\1:/g; s/:$//')
+          EXPECTED=$(cat app/expected-signer.txt | tr -d '\n')
+          echo "Built with signer:    $FINGERPRINT"
+          echo "Expected signer:      $EXPECTED"
+          if [ "$FINGERPRINT" != "$EXPECTED" ]; then
+            echo "::error::Signer fingerprint mismatch — this build would break updates for every installed copy."
+            exit 1
+          fi
 
       - name: Report APK size
         run: ls -lh app/build/outputs/apk/debug/*.apk
@@ -46,4 +65,4 @@ jobs:
           gh release create "build-${{ github.run_number }}" \
             app/build/outputs/apk/debug/app-debug.apk \
             --title "Build ${{ github.run_number }}" \
-            --notes "Automated build from ${{ github.sha }}"
+            --notes "Automated build from ${{ github.sha }}. Signer: $(cat app/expected-signer.txt). versionCode: $((${{ github.run_number }} + 1000))."

@@ -78,3 +78,19 @@ carries no security value. Both `debug` and `release` build types point at it.
 launcher was signed with a runner-generated key that no longer exists.
 Uninstall it once before installing the first V7 APK. Every build after that
 updates cleanly.
+
+**CI verifies the signer on every run.** `app/expected-signer.txt` holds the
+one fingerprint every build must carry. The "Verify signer" step in
+`.github/workflows/build.yml` runs `apksigner verify --print-certs` on the
+freshly built APK and fails the build if the digest does not match — this is
+the check whose absence let three months of unsignable releases ship before
+V8. If it fails, the keystore or signing config changed; that is a stop,
+not a fingerprint to update casually.
+
+**Every push, on every branch, now builds.** The workflow used to trigger
+only on `main` and `V7`; a push to any other branch produced no APK and no
+signal that CI even ran. It now triggers on `branches: ['**']`.
+
+**Diagnosing a failed update:** compare the release notes' signer line
+against the device's installed signer with
+`adb shell dumpsys package com.retro.launcher | grep -A2 signatures`.
