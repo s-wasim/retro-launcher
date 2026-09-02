@@ -514,8 +514,25 @@ public final class SkyRenderer {
         return sunAngle(hour) + 2f * (float) Math.PI * phase;
     }
 
+    /** Day span, in hours, between the sky gradient's dawn and dusk
+     *  anchors — see {@link SolarClock}. */
+    private static final float DAY_SPAN_HOURS = SolarClock.SUNSET_ANCHOR - SolarClock.SUNRISE_ANCHOR;
+    private static final float NIGHT_SPAN_HOURS = 24f - DAY_SPAN_HOURS;
+
+    /**
+     * Sun altitude proxy: {@code 0} at both {@link SolarClock#SUNRISE_ANCHOR}
+     * and {@link SolarClock#SUNSET_ANCHOR}, {@code 1} at solar noon
+     * (midway between them), {@code -1} at solar midnight. Piecewise so it
+     * stays continuous and consistent with the anchors {@code SolarClock}
+     * warps real time onto, rather than the fixed 6/18 the table used to
+     * assume.
+     */
     public static float sunAlt(float hour) {
-        return (float) Math.sin((hour - 6f) / 12f * Math.PI);
+        if (hour >= SolarClock.SUNRISE_ANCHOR && hour <= SolarClock.SUNSET_ANCHOR) {
+            return (float) Math.sin(Math.PI * (hour - SolarClock.SUNRISE_ANCHOR) / DAY_SPAN_HOURS);
+        }
+        float h = hour < SolarClock.SUNRISE_ANCHOR ? hour + 24f : hour;
+        return -(float) Math.sin(Math.PI * (h - SolarClock.SUNSET_ANCHOR) / NIGHT_SPAN_HOURS);
     }
 
     public static float smooth(float e0, float e1, float x) {

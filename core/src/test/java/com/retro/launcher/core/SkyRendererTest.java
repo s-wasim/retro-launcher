@@ -15,10 +15,32 @@ public class SkyRendererTest {
     }
 
     @Test public void sunAltitudePeaksAtNoonAndBottomsAtMidnight() {
-        assertEquals(1f,  SkyRenderer.sunAlt(12f), 0.001f);
-        assertEquals(0f,  SkyRenderer.sunAlt(6f),  0.001f);
-        assertEquals(-1f, SkyRenderer.sunAlt(0f),  0.001f);
-        assertEquals(0f,  SkyRenderer.sunAlt(18f), 0.001f);
+        // The anchors (6.2/18.4) aren't symmetric around civil noon/midnight,
+        // so the true peak/trough sit at solar noon (the anchors' midpoint,
+        // 12.3) and solar midnight (18.4 + NIGHT_SPAN_HOURS/2, wrapping to
+        // 0.3) rather than exactly hour 12/0.
+        assertEquals(1f,  SkyRenderer.sunAlt(12.3f), 0.001f);
+        assertEquals(-1f, SkyRenderer.sunAlt(0.3f),  0.001f);
+    }
+
+    @Test public void sunAltitudeIsZeroAtBothAnchors() {
+        assertEquals(0f, SkyRenderer.sunAlt(6.2f),  0.001f);
+        assertEquals(0f, SkyRenderer.sunAlt(18.4f), 0.001f);
+    }
+
+    @Test public void sunAltitudeIsPositiveAtMiddayAndNegativeAtMidnight() {
+        assertTrue(SkyRenderer.sunAlt(12f) > 0f);
+        assertTrue(SkyRenderer.sunAlt(0f) < 0f);
+    }
+
+    @Test public void sunAltitudeIsContinuousAcrossBothAnchors() {
+        float justBeforeDawn = SkyRenderer.sunAlt(6.2f - 0.01f);
+        float justAfterDawn  = SkyRenderer.sunAlt(6.2f + 0.01f);
+        assertEquals(justBeforeDawn, justAfterDawn, 0.01f);
+
+        float justBeforeDusk = SkyRenderer.sunAlt(18.4f - 0.01f);
+        float justAfterDusk  = SkyRenderer.sunAlt(18.4f + 0.01f);
+        assertEquals(justBeforeDusk, justAfterDusk, 0.01f);
     }
 
     @Test public void moonAngleMatchesSunAngleAtFullMoon() {
