@@ -14,6 +14,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -152,6 +153,7 @@ public class HomeActivity extends Activity {
             @Override public void onEnableDeviceLock() { requestLockCapability(); }
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
             @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
+            @Override public void onEnableOverlay() { openOverlaySettings(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
@@ -441,6 +443,7 @@ public class HomeActivity extends Activity {
 
         settings.setDeviceLockStatus(lockRoute());
         settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
+        settings.setOverlayStatus(hasOverlayPermission());
 
         boolean defaultLauncher = isDefaultLauncher();
         settings.setDefaultLauncherStatus(defaultLauncher);
@@ -590,6 +593,20 @@ public class HomeActivity extends Activity {
      *  fallback — see {@link ShadeService}. */
     private void openAccessibilitySettings() {
         startSafely(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    }
+
+    /** Whether the launcher currently holds the "draw over other apps"
+     *  special-access permission. */
+    private boolean hasOverlayPermission() {
+        return Settings.canDrawOverlays(this);
+    }
+
+    /** Sends the user to the system's "draw over other apps" settings screen
+     *  for this app — SYSTEM_ALERT_WINDOW is special access, not a runtime
+     *  permission, so there is no requestPermissions() path for it. */
+    private void openOverlaySettings() {
+        startSafely(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())));
     }
 
     /**

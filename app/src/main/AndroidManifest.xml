@@ -57,6 +57,7 @@
          needs no uses-permission — see the LockAdminReceiver declaration
          below (DESIGN_NOTES §9 delta 19). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- The weather fetch already sends exact coordinates; with only COARSE
          the platform hands us a fix rounded to roughly a city block, and the

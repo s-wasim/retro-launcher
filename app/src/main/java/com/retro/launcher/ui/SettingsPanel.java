@@ -57,6 +57,7 @@ public final class SettingsPanel extends FrameLayout {
         void onEnableDeviceLock();
         void onSetDefaultLauncher();
         void onEnableNotificationShade();
+        void onEnableOverlay();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -88,6 +89,7 @@ public final class SettingsPanel extends FrameLayout {
     private LockRoute lockRoute = LockRoute.NONE;
     private boolean isDefaultLauncher;
     private boolean shadeServiceEnabled;
+    private boolean overlayGranted;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -235,6 +237,11 @@ public final class SettingsPanel extends FrameLayout {
      *  the notification shade is switched on. */
     public void setNotificationShadeStatus(boolean enabled) {
         this.shadeServiceEnabled = enabled;
+        rebuildPermissionsSection();
+    }
+
+    public void setOverlayStatus(boolean granted) {
+        this.overlayGranted = granted;
         rebuildPermissionsSection();
     }
 
@@ -656,6 +663,11 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(shadeRow, gap);
         permSection.addView(shadeRow);
 
+        View overlayRow = permissionRow("DRAW OVER APPS", overlayGranted, "ON", "ENABLE",
+                () -> { if (permissionListener != null) permissionListener.onEnableOverlay(); });
+        addTopMargin(overlayRow, gap);
+        permSection.addView(overlayRow);
+
         // Always tappable, unlike the rows above: re-picking your home app is
         // a thing people want to do while already the default, and there is no
         // harm in opening the screen that shows it.
@@ -674,6 +686,8 @@ public final class SettingsPanel extends FrameLayout {
                 + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
                 + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
                 + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
+                + "DRAW OVER APPS LETS THE LAUNCHER STAY ON SCREEN INSTANTLY WHEN YOU PRESS "
+                + "HOME, INSTEAD OF WAITING FOR ANDROID TO REOPEN IT FROM RECENTS.\n\n"
                 + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);
