@@ -3,6 +3,7 @@ package com.retro.launcher.core;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
@@ -149,18 +150,91 @@ public class UsageMathTest {
         assertTrue(UsageMath.only(mixedDay(), "com.nobody").isEmpty());
     }
 
-    @Test public void resolveTotalSubtractsLauncherTimeFromTheDeviceReading() {
-        assertEquals(150 * 60_000L,
-                UsageMath.resolveTotal(180 * 60_000L, 30 * 60_000L, 42 * 60_000L));
+    private static UsageMath.Interval iv(String pkg, long from, long to) {
+        return new UsageMath.Interval(pkg, from, to);
     }
 
-    @Test public void resolveTotalFallsBackWhenTheDeviceReportsNothing() {
-        assertEquals(42 * 60_000L, UsageMath.resolveTotal(0, 30 * 60_000L, 42 * 60_000L));
-        assertEquals(42 * 60_000L, UsageMath.resolveTotal(-1, 30 * 60_000L, 42 * 60_000L));
-        assertEquals(0L, UsageMath.resolveTotal(0, 30 * 60_000L, 0));
+    private static long sum(List<UsageMath.Interval> ivs) {
+        long total = 0;
+        for (UsageMath.Interval i : ivs) total += i.endMillis - i.startMillis;
+        return total;
     }
 
-    @Test public void resolveTotalNeverGoesNegativeWhenLauncherTimeOverruns() {
-        assertEquals(0L, UsageMath.resolveTotal(10 * 60_000L, 30 * 60_000L, 42 * 60_000L));
+    @Test public void mergeCoalescesOverlappingSpansForOnePackage() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 0, 100), iv("a", 50, 200)));
+        assertEquals(1, merged.size());
+        assertEquals(0L, merged.get(0).startMillis);
+        assertEquals(200L, merged.get(0).endMillis);
+    }
+
+    @Test public void mergeCoalescesTouchingSpans() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 0, 100), iv("a", 100, 200)));
+        assertEquals(1, merged.size());
+        assertEquals(200L, merged.get(0).endMillis);
+    }
+
+    @Test public void mergeKeepsSeparatePackagesSeparate() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 0, 100), iv("b", 50, 200)));
+        assertEquals(2, merged.size());
+        assertEquals(250L, sum(merged));
+    }
+
+    @Test public void mergeKeepsAGapAsTwoSpans() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 0, 100), iv("a", 150, 200)));
+        assertEquals(2, merged.size());
+        assertEquals(150L, sum(merged));
+    }
+
+    @Test public void mergeSwallowsAFullyContainedSpan() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 0, 500), iv("a", 100, 200)));
+        assertEquals(1, merged.size());
+        assertEquals(500L, sum(merged));
+    }
+
+    @Test public void mergeHandlesUnsortedInput() {
+        List<UsageMath.Interval> merged = UsageMath.merge(Arrays.asList(
+                iv("a", 150, 200), iv("a", 0, 100), iv("a", 90, 160)));
+        assertEquals(1, merged.size());
+        assertEquals(200L, sum(merged));
+    }
+
+    @Test public void mergeOfNothingIsNothing() {
+        assertTrue(UsageMath.merge(new ArrayList<>()).isEmpty());
+    }
+
+    @Test public void intersectClipsSpansToTheWindows() {
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 1000)),
+                Arrays.asList(iv("!awake", 200, 400), iv("!awake", 600, 700)));
+        assertEquals(2, clipped.size());
+        assertEquals(300L, sum(clipped));
+        assertEquals("a", clipped.get(0).pkg);
+    }
+
+    @Test public void intersectDropsSpansEntirelyOutsideEveryWindow() {
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 100)),
+                Arrays.asList(iv("!awake", 500, 900)));
+        assertTrue(clipped.isEmpty());
+    }
+
+    @Test public void intersectWithNoWindowsKeepsNothing() {
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 0, 100)),
+                new ArrayList<>());
+        assertTrue(clipped.isEmpty());
+    }
+
+    @Test public void intersectPreservesAFullyContainedSpan() {
+        List<UsageMath.Interval> clipped = UsageMath.intersect(
+                Arrays.asList(iv("a", 200, 300)),
+                Arrays.asList(iv("!awake", 0, 1000)));
+        assertEquals(1, clipped.size());
+        assertEquals(100L, sum(clipped));
     }
 }
