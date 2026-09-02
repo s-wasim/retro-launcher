@@ -8,10 +8,8 @@ import com.retro.launcher.data.AppEntry;
 
 /**
  * Wraps an {@link IconSource} with per-call timing, logged as a running
- * average every 30 calls (about one drawer screenful). This is what the
- * Tier 2 gate reads to pick between {@link GeneratedTileIcons} and
- * {@link PosterizedIcons} — see design spec §3.4 and §9's icon risk row.
- * Debug-only; never wired in a release build.
+ * average every 30 calls (about one drawer screenful). Debug-only; never
+ * wired in a release build.
  */
 public final class InstrumentedIconSource implements IconSource {
 
