@@ -95,14 +95,24 @@ public final class LocationSource {
         if (lm == null || provider == null) { callback.accept(lastKnown()); return; }
 
         AtomicBoolean done = new AtomicBoolean(false);
+        // Only one of these is ever populated, depending on which branch below
+        // runs; giveUp cleans up whichever it is so a timeout never leaves a
+        // registration or an in-flight OS request behind.
+        LocationListener[] pendingListener = new LocationListener[1];
+        CancellationSignal[] pendingCancel = new CancellationSignal[1];
         Runnable giveUp = () -> {
-            if (done.compareAndSet(false, true)) callback.accept(lastKnown());
+            if (!done.compareAndSet(false, true)) return;
+            if (pendingListener[0] != null) lm.removeUpdates(pendingListener[0]);
+            if (pendingCancel[0] != null) pendingCancel[0].cancel();
+            callback.accept(lastKnown());
         };
         main.postDelayed(giveUp, TIMEOUT_MS);
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                lm.getCurrentLocation(provider, new CancellationSignal(), ctx.getMainExecutor(),
+                CancellationSignal cancel = new CancellationSignal();
+                pendingCancel[0] = cancel;
+                lm.getCurrentLocation(provider, cancel, ctx.getMainExecutor(),
                         location -> {
                             if (!done.compareAndSet(false, true)) return;
                             main.removeCallbacks(giveUp);
@@ -110,8 +120,10 @@ public final class LocationSource {
                         });
             } else {
                 // 26–29. requestSingleUpdate is deprecated on R+ but is the
-                // only single-shot API below it, and it unregisters itself.
-                lm.requestSingleUpdate(provider, new LocationListener() {
+                // only single-shot API below it, and — unlike getCurrentLocation
+                // above — does not unregister itself on timeout, so giveUp must
+                // call removeUpdates explicitly.
+                LocationListener listener = new LocationListener() {
                     @Override public void onLocationChanged(Location location) {
                         if (!done.compareAndSet(false, true)) return;
                         main.removeCallbacks(giveUp);
@@ -120,7 +132,9 @@ public final class LocationSource {
                     @Override public void onStatusChanged(String p, int s, android.os.Bundle x) {}
                     @Override public void onProviderEnabled(String p) {}
                     @Override public void onProviderDisabled(String p) {}
-                }, Looper.getMainLooper());
+                };
+                pendingListener[0] = listener;
+                lm.requestSingleUpdate(provider, listener, Looper.getMainLooper());
             }
         } catch (RuntimeException e) {
             main.removeCallbacks(giveUp);
