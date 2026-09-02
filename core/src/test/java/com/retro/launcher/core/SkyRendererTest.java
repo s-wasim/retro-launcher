@@ -21,6 +21,32 @@ public class SkyRendererTest {
         assertEquals(0f,  SkyRenderer.sunAlt(18f), 0.001f);
     }
 
+    @Test public void moonAngleMatchesSunAngleAtFullMoon() {
+        // Preserves today's one night where the old fixed-opposite formula
+        // happened to be correct.
+        assertEquals(SkyRenderer.sunAngle(9f) + (float) Math.PI,
+                     SkyRenderer.moonAngle(9f, 0.5f), 0.0001f);
+    }
+
+    @Test public void moonAngleMatchesSunAngleAtNewMoon() {
+        assertEquals(SkyRenderer.sunAngle(9f), SkyRenderer.moonAngle(9f, 0f), 0.0001f);
+    }
+
+    @Test public void moonAngleOffsetIsAQuarterTurnAtFirstQuarter() {
+        float offset = SkyRenderer.moonAngle(9f, 0.25f) - SkyRenderer.sunAngle(9f);
+        assertEquals((float) Math.PI / 2f, offset, 0.0001f);
+    }
+
+    @Test public void moonAngleIsMonotonicInPhase() {
+        float prev = SkyRenderer.moonAngle(9f, 0f);
+        for (int i = 1; i <= 100; i++) {
+            float phase = i / 100f;
+            float cur = SkyRenderer.moonAngle(9f, phase);
+            assertTrue("angle did not advance at phase " + phase, cur > prev);
+            prev = cur;
+        }
+    }
+
     @Test public void smoothstepIsClampedAndMonotonic() {
         assertEquals(0f,   SkyRenderer.smooth(0f, 1f, -1f), 0.001f);
         assertEquals(1f,   SkyRenderer.smooth(0f, 1f, 2f),  0.001f);
@@ -54,7 +80,7 @@ public class SkyRendererTest {
         // from the sun and moon discs isolates pixels the invariant covers.
         int[] buf = renderAt(12f, 0f);
         int sx = Math.round(sunX(12f)), sy = Math.round(sunY(12f, H));
-        int mx = Math.round(moonX(12f)), my = Math.round(moonY(12f, H));
+        int mx = Math.round(moonX(12f, 0.62f)), my = Math.round(moonY(12f, 0.62f, H));
         for (int y = 0; y < H; y++) {
             for (int x = 0; x < W; x++) {
                 // Sun rays extend up to R+3+rayLen (~20px) beyond the disc centre.
@@ -98,12 +124,19 @@ public class SkyRendererTest {
         float travel = 0.3125f * h;
         return 0.667f * h + (1f - (float) Math.sin(thSun)) * travel;
     }
-    private static float moonX(float hour) {
-        float thMoon = (float) ((hour - 6) / 12.0 * Math.PI) + (float) Math.PI;
+    /** The hour at which a moon of this phase sits highest on screen —
+     *  moonAngle(hour, phase) == π/2 — so a test can pick a phase without
+     *  hand-picking an hour where that phase's disc happens to be visible. */
+    private static float hourForMoonOverhead(float phase) {
+        float hour = 12f - 24f * phase;
+        return ((hour % 24f) + 24f) % 24f;
+    }
+    private static float moonX(float hour, float phase) {
+        float thMoon = (float) ((hour - 6) / 12.0 * Math.PI) + 2f * (float) Math.PI * phase;
         return 36f - (float) Math.cos(thMoon) * 60f;
     }
-    private static float moonY(float hour, int h) {
-        float thMoon = (float) ((hour - 6) / 12.0 * Math.PI) + (float) Math.PI;
+    private static float moonY(float hour, float phase, int h) {
+        float thMoon = (float) ((hour - 6) / 12.0 * Math.PI) + 2f * (float) Math.PI * phase;
         float travel = 0.3125f * h;
         return 0.333f * h - (1f - (float) Math.sin(thMoon)) * travel;
     }
@@ -131,7 +164,7 @@ public class SkyRendererTest {
 
     @Test public void moonDiscAppearsAtNight() {
         int[] midnight = renderAt(0f, 0f);
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        int cx = Math.round(moonX(0f, 0.62f)), cy = Math.round(moonY(0f, 0.62f, H));
         assertTrue(cy >= 0 && cy < H);
         float discLuma = meanLumaBox(midnight, cx, cy, 4);
         float ambientLuma = meanLumaBox(midnight, W - 6, H - 6, 3);
@@ -144,7 +177,7 @@ public class SkyRendererTest {
         int[] bufFull = new int[W * H], bufNew = new int[W * H];
         full.render(bufFull, 0f, 0f, 0.5f, 0f);
         newMoon.render(bufNew, 0f, 0f, 0.0f, 0f);
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        int cx = Math.round(moonX(0f, 0.5f)), cy = Math.round(moonY(0f, 0.5f, H));
         assertTrue(meanLumaBox(bufFull, cx, cy, 10) > meanLumaBox(bufNew, cx, cy, 10));
     }
 
@@ -153,19 +186,21 @@ public class SkyRendererTest {
         SkyRenderer r = new SkyRenderer(W, H);
         r.setSouthernView(southern);
         int[] buf = new int[W * H];
-        r.render(buf, 0f, 0f, phase, 0f);
+        r.render(buf, hourForMoonOverhead(phase), 0f, phase, 0f);
         return buf;
     }
 
     @Test public void waxingCrescentIsLitOnTheRightFromTheNorth() {
         int[] buf = moonAt(0.12f, false);
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        float hour = hourForMoonOverhead(0.12f);
+        int cx = Math.round(moonX(hour, 0.12f)), cy = Math.round(moonY(hour, 0.12f, H));
         assertTrue(meanLumaBox(buf, cx + 9, cy, 2) > meanLumaBox(buf, cx - 9, cy, 2) + 20f);
     }
 
     @Test public void waningCrescentIsLitOnTheLeftFromTheNorth() {
         int[] buf = moonAt(0.88f, false);
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        float hour = hourForMoonOverhead(0.88f);
+        int cx = Math.round(moonX(hour, 0.88f)), cy = Math.round(moonY(hour, 0.88f, H));
         assertTrue(meanLumaBox(buf, cx - 9, cy, 2) > meanLumaBox(buf, cx + 9, cy, 2) + 20f);
     }
 
@@ -173,14 +208,15 @@ public class SkyRendererTest {
     @Test public void theSouthernViewMirrorsTheTerminator() {
         int[] north = moonAt(0.12f, false);
         int[] south = moonAt(0.12f, true);
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        float hour = hourForMoonOverhead(0.12f);
+        int cx = Math.round(moonX(hour, 0.12f)), cy = Math.round(moonY(hour, 0.12f, H));
         assertTrue(meanLumaBox(north, cx + 9, cy, 2) > meanLumaBox(south, cx + 9, cy, 2) + 20f);
         assertTrue(meanLumaBox(south, cx - 9, cy, 2) > meanLumaBox(north, cx - 9, cy, 2) + 20f);
     }
 
     /** A full moon has no terminator, so hemisphere cannot change its brightness. */
     @Test public void hemisphereDoesNotChangeHowMuchOfAFullMoonIsLit() {
-        int cx = Math.round(moonX(0f)), cy = Math.round(moonY(0f, H));
+        int cx = Math.round(moonX(0f, 0.5f)), cy = Math.round(moonY(0f, 0.5f, H));
         assertEquals(meanLumaBox(moonAt(0.5f, false), cx, cy, 10),
                      meanLumaBox(moonAt(0.5f, true), cx, cy, 10), 6f);
     }
@@ -213,7 +249,7 @@ public class SkyRendererTest {
         // Stars are near-white single pixels; count bright near-white pixels
         // away from the sun/moon discs at each hour.
         int sxN = Math.round(sunX(0f)), syN = Math.round(sunY(0f, H));
-        int mxN = Math.round(moonX(0f)), myN = Math.round(moonY(0f, H));
+        int mxN = Math.round(moonX(0f, 0.62f)), myN = Math.round(moonY(0f, 0.62f, H));
         int starPixels = 0;
         for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
             if (Math.hypot(x - sxN, y - syN) < 25 || Math.hypot(x - mxN, y - myN) < 20) continue;
@@ -224,7 +260,7 @@ public class SkyRendererTest {
         assertTrue(starPixels > 0);
 
         int sxD = Math.round(sunX(12f)), syD = Math.round(sunY(12f, H));
-        int mxD = Math.round(moonX(12f)), myD = Math.round(moonY(12f, H));
+        int mxD = Math.round(moonX(12f, 0.62f)), myD = Math.round(moonY(12f, 0.62f, H));
         int dayBrightPixels = 0;
         for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
             if (Math.hypot(x - sxD, y - syD) < 25 || Math.hypot(x - mxD, y - myD) < 20) continue;

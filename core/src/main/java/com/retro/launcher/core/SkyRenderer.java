@@ -153,8 +153,8 @@ public final class SkyRenderer {
         final float botR = sky[3] * dark, botG = sky[4] * dark, botB = sky[5] * dark;
 
         // Body positions — DESIGN_NOTES §2b.
-        final float thSun  = (hour - 6f) / 12f * (float) Math.PI;
-        final float thMoon = thSun + (float) Math.PI;
+        final float thSun  = sunAngle(hour);
+        final float thMoon = moonAngle(hour, moonPhase);
         final float travel = 0.3125f * h;
         final float sunX  = 72f - (float) Math.cos(thSun)  * 60f;
         final float moonX = 36f - (float) Math.cos(thMoon) * 60f;
@@ -490,6 +490,28 @@ public final class SkyRenderer {
                 out[i] = tintRamp[idx < 0 ? 0 : (idx >= n ? n - 1 : idx)];
             }
         }
+    }
+
+    /** The sun's hour angle: 0 at 06:00, π at 18:00. */
+    static float sunAngle(float hour) {
+        return (hour - 6f) / 12f * (float) Math.PI;
+    }
+
+    /**
+     * The moon's hour angle. The moon lags the sun by exactly its
+     * elongation: new moon ({@code phase 0}) puts it on the sun; full
+     * ({@code phase 0.5}) puts it opposite — the one case the old fixed
+     * {@code thSun + π} formula got right, since it assumed every night was
+     * a full moon. The quarters sit a quarter turn off, matching them
+     * rising/setting roughly six hours from the sun.
+     *
+     * <p>Ignores lunar declination and the parallactic angle, so this is
+     * right to roughly the hour rather than the minute — see MoonPhase's
+     * own javadoc for the same limit on the phase itself. Against a 12px
+     * disc that is the correct place to stop.
+     */
+    static float moonAngle(float hour, float phase) {
+        return sunAngle(hour) + 2f * (float) Math.PI * phase;
     }
 
     public static float sunAlt(float hour) {
