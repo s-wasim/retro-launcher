@@ -98,6 +98,7 @@ public class HomeActivity extends Activity {
         @Override public void run() {
             refreshPalette();
             refreshTime();
+            refreshSkyLocation();
             // Cheap: the repository's own policy decides whether this minute
             // is one where a fetch is actually due.
             weatherRepository.refresh(false, HomeActivity.this::refreshTime);
@@ -400,11 +401,14 @@ public class HomeActivity extends Activity {
         sky.setTint(prefs.tint() ? palette.ramp() : null);
     }
 
-    /** The moon's phase is the same everywhere; which way up it looks is not.
-     *  Latitude comes from the coarse fix the weather already keeps. */
+    /** The moon's phase is the same everywhere; which way up it looks, and
+     *  what real time maps onto the sky gradient, are not. Both come from
+     *  the coarse fix and solar times the weather repository already keeps. */
     private void refreshSkyLocation() {
         double[] fix = weatherRepository.fix();
-        sky.setLatitude(fix == null ? Float.NaN : (float) fix[0]);
+        sky.setLocation(fix == null ? Float.NaN : (float) fix[0],
+                         fix == null ? Float.NaN : (float) fix[1]);
+        sky.setSolarTimes(weatherRepository.solarTimes());
     }
 
     private void refreshTime() {
