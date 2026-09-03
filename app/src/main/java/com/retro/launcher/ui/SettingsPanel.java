@@ -57,6 +57,7 @@ public final class SettingsPanel extends FrameLayout {
         void onEnableDeviceLock();
         void onSetDefaultLauncher();
         void onEnableNotificationShade();
+        void onEnableShizukuLock();
         void onEnableOverlay();
     }
 
@@ -89,6 +90,8 @@ public final class SettingsPanel extends FrameLayout {
     private LockRoute lockRoute = LockRoute.NONE;
     private boolean isDefaultLauncher;
     private boolean shadeServiceEnabled;
+    private boolean shizukuLockEnabled;
+    private boolean shizukuLockPermitted;
     private boolean overlayGranted;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
@@ -237,6 +240,15 @@ public final class SettingsPanel extends FrameLayout {
      *  the notification shade is switched on. */
     public void setNotificationShadeStatus(boolean enabled) {
         this.shadeServiceEnabled = enabled;
+        rebuildPermissionsSection();
+    }
+
+    /** V8 design spec item 5: whether the SHIZUKU LOCK toggle is on, and
+     *  whether a permitted session is currently reachable — two different
+     *  things, since the toggle survives a reboot but the pairing does not. */
+    public void setShizukuLockStatus(boolean enabled, boolean permitted) {
+        this.shizukuLockEnabled = enabled;
+        this.shizukuLockPermitted = permitted;
         rebuildPermissionsSection();
     }
 
@@ -668,6 +680,16 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(overlayRow, gap);
         permSection.addView(overlayRow);
 
+        // Three states again, same shape as DEVICE LOCK: off (never opted
+        // in), on-but-not-permitted (opted in, needs (re-)pairing — the
+        // normal state after a reboot on an unrooted device), and on.
+        boolean shizukuGranted = shizukuLockEnabled && shizukuLockPermitted;
+        String shizukuText = !shizukuLockEnabled ? "ENABLE" : "GRANT";
+        View shizukuRow = permissionRow("SHIZUKU LOCK", shizukuGranted, "ON", shizukuText,
+                () -> { if (permissionListener != null) permissionListener.onEnableShizukuLock(); });
+        addTopMargin(shizukuRow, gap);
+        permSection.addView(shizukuRow);
+
         // Always tappable, unlike the rows above: re-picking your home app is
         // a thing people want to do while already the default, and there is no
         // harm in opening the screen that shows it.
@@ -686,6 +708,11 @@ public final class SettingsPanel extends FrameLayout {
                 + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
                 + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
                 + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
+                + "SHIZUKU LOCK IS AN OPTIONAL ALTERNATIVE TO ACCESSIBILITY THAT SOME "
+                + "BANKING APPS DO NOT FLAG. IT NEEDS A SEPARATE SHIZUKU APP PAIRED OVER "
+                + "WIRELESS DEBUGGING, AND THAT PAIRING MUST BE REDONE AFTER EVERY REBOOT "
+                + "UNLESS YOUR DEVICE IS ROOTED. GRANT MEANS THE TOGGLE IS ON BUT THE "
+                + "PAIRING HAS LAPSED.\n\n"
                 + "DRAW OVER APPS LETS THE LAUNCHER STAY ON SCREEN INSTANTLY WHEN YOU PRESS "
                 + "HOME, INSTEAD OF WAITING FOR ANDROID TO REOPEN IT FROM RECENTS.\n\n"
                 + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
