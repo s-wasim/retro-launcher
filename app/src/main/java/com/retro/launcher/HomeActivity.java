@@ -522,16 +522,6 @@ public class HomeActivity extends Activity {
         requestLockCapability();
     }
 
-    /**
-     * Sets up a lock route, without locking — this is what the DEVICE LOCK row
-     * in Settings calls, where locking the phone on a tap would be a surprise.
-     *
-     * <p>On API 28+ it always points at Accessibility settings, including for
-     * someone already on the admin route: that is the upgrade from "PIN ONLY"
-     * to a lock the fingerprint can undo, and it is the only route worth
-     * adding on a modern Android. Below 28 the admin dialog is the only thing
-     * there is.
-     */
     /** The SHIZUKU LOCK row's fix action: turn the toggle on (if it was
      *  off) and (re-)request permission — this also covers "paired before,
      *  needs re-pairing after a reboot", which looks identical to Shizuku's
@@ -542,6 +532,16 @@ public class HomeActivity extends Activity {
         refreshPermissionStatus();
     }
 
+    /**
+     * Sets up a lock route, without locking — this is what the DEVICE LOCK row
+     * in Settings calls, where locking the phone on a tap would be a surprise.
+     *
+     * <p>On API 28+ it always points at Accessibility settings, including for
+     * someone already on the admin route: that is the upgrade from "PIN ONLY"
+     * to a lock the fingerprint can undo, and it is the only route worth
+     * adding on a modern Android. Below 28 the admin dialog is the only thing
+     * there is.
+     */
     private void requestLockCapability() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             openAccessibilitySettings();
