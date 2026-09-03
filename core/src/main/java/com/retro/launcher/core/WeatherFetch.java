@@ -9,11 +9,11 @@ package com.retro.launcher.core;
  */
 public final class WeatherFetch {
 
-	public final Weather weather;
-	public final SolarTimes solarTimes;
+    public final Weather weather;
+    public final SolarTimes solarTimes;
 
-	public WeatherFetch(Weather weather, SolarTimes solarTimes) {
-		this.weather = weather;
-		this.solarTimes = solarTimes;
-	}
+    public WeatherFetch(Weather weather, SolarTimes solarTimes) {
+        this.weather = weather;
+        this.solarTimes = solarTimes;
+    }
 }
