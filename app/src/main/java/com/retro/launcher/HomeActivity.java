@@ -43,6 +43,7 @@ import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PixelArtIcons;
+import com.retro.launcher.lock.ShizukuLock;
 import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
@@ -64,6 +65,7 @@ import java.util.List;
 public class HomeActivity extends Activity {
 
     private static final int REQ_LOCATION = 1;
+    private static final int REQ_SHIZUKU = 2;
 
     private LauncherRoot root;
     private Haptics haptics;
@@ -155,6 +157,7 @@ public class HomeActivity extends Activity {
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
             @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
             @Override public void onEnableOverlay() { openOverlaySettings(); }
+            @Override public void onEnableShizukuLock() { enableShizukuLock(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
@@ -447,6 +450,7 @@ public class HomeActivity extends Activity {
 
         settings.setDeviceLockStatus(lockRoute());
         settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
+        settings.setShizukuLockStatus(prefs.shizukuLockEnabled(), ShizukuLock.hasPermission());
         settings.setOverlayStatus(hasOverlayPermission());
 
         boolean defaultLauncher = isDefaultLauncher();
@@ -479,10 +483,13 @@ public class HomeActivity extends Activity {
                 && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
     }
 
-    /** Which of the two lock routes is available right now — see
+    /** Which of the three lock routes is available right now — see
      *  {@link LockRoute} for why the order matters. */
     private LockRoute lockRoute() {
-        return LockRoute.choose(ShadeService.canLockScreen(this), canLockViaAdmin());
+        return LockRoute.choose(
+                ShizukuLock.isAvailable(prefs.shizukuLockEnabled()),
+                ShadeService.canLockScreen(this),
+                canLockViaAdmin());
     }
 
     /**
@@ -500,6 +507,7 @@ public class HomeActivity extends Activity {
      * other permission-adjacent flows in this activity.
      */
     private void lockDevice() {
+        if (ShizukuLock.isAvailable(prefs.shizukuLockEnabled()) && ShizukuLock.lock()) return;
         if (ShadeService.lockScreen()) return;
         if (canLockViaAdmin()) {
             try {
@@ -524,6 +532,16 @@ public class HomeActivity extends Activity {
      * adding on a modern Android. Below 28 the admin dialog is the only thing
      * there is.
      */
+    /** The SHIZUKU LOCK row's fix action: turn the toggle on (if it was
+     *  off) and (re-)request permission — this also covers "paired before,
+     *  needs re-pairing after a reboot", which looks identical to Shizuku's
+     *  API as "not permitted yet". */
+    private void enableShizukuLock() {
+        if (!prefs.shizukuLockEnabled()) prefs.putBool(Prefs.K_SHIZUKU, true);
+        ShizukuLock.requestPermission(REQ_SHIZUKU);
+        refreshPermissionStatus();
+    }
+
     private void requestLockCapability() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             openAccessibilitySettings();
