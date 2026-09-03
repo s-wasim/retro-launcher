@@ -1,5 +1,11 @@
 package com.retro.launcher.core;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Turns Open-Meteo's {@code current_weather} reply into a {@link Weather}.
  *
@@ -43,6 +49,81 @@ public final class WeatherParser {
 
         return new Weather((int) Math.round(temp),
                 SyntheticWeather.label(c.w, c.snow), c.w);
+    }
+
+    private static final String DAILY_KEY = "\"daily\"";
+
+    /**
+     * @param json  a full Open-Meteo response body with {@code &daily=
+     *              sunrise,sunset&forecast_days=2} appended to the request,
+     *              or null
+     * @param today the local date the first element of the {@code daily}
+     *              arrays is expected to describe
+     * @return today's sunrise, sunset and tomorrow's sunrise, or null if the
+     *         block is absent or cannot be read with confidence
+     */
+    public static SolarTimes parseSolarTimes(String json, LocalDate today) {
+        if (json == null) return null;
+
+        String body = objectFor(json, DAILY_KEY);
+        if (body == null) return null;
+
+        List<String> sunrises = stringArray(body, "\"sunrise\"");
+        List<String> sunsets = stringArray(body, "\"sunset\"");
+        if (sunrises == null || sunsets == null) return null;
+        if (sunrises.size() < 2 || sunsets.size() < 1) return null;
+
+        Float sunriseHour = hourOfDay(sunrises.get(0));
+        Float sunsetHour = hourOfDay(sunsets.get(0));
+        Float tomorrowSunriseHour = hourOfDay(sunrises.get(1));
+        if (sunriseHour == null || sunsetHour == null || tomorrowSunriseHour == null) return null;
+
+        return new SolarTimes(sunriseHour, sunsetHour, tomorrowSunriseHour, today);
+    }
+
+    /**
+     * The quoted string elements of the JSON array at {@code key} within one
+     * object body, or null if the key is absent or its value is not an
+     * array of bare strings.
+     */
+    private static List<String> stringArray(String body, String key) {
+        int at = body.indexOf(key);
+        if (at < 0) return null;
+
+        int i = skipSpace(body, at + key.length());
+        if (i >= body.length() || body.charAt(i) != ':') return null;
+        i = skipSpace(body, i + 1);
+        if (i >= body.length() || body.charAt(i) != '[') return null;
+        i++;
+
+        List<String> out = new ArrayList<>();
+        i = skipSpace(body, i);
+        if (i < body.length() && body.charAt(i) == ']') return out; // empty array
+
+        while (i < body.length()) {
+            if (body.charAt(i) != '"') return null;
+            int start = ++i;
+            while (i < body.length() && body.charAt(i) != '"') i++;
+            if (i >= body.length()) return null; // unterminated string
+            out.add(body.substring(start, i));
+            i = skipSpace(body, i + 1);
+            if (i >= body.length()) return null;
+            if (body.charAt(i) == ',') { i = skipSpace(body, i + 1); continue; }
+            if (body.charAt(i) == ']') return out;
+            return null;
+        }
+        return null; // never closed
+    }
+
+    /** Open-Meteo's ISO local datetime, e.g. {@code "2026-08-28T06:12"}, as
+     *  a decimal hour — or null if it does not parse. */
+    private static Float hourOfDay(String isoLocalDateTime) {
+        try {
+            LocalDateTime dt = LocalDateTime.parse(isoLocalDateTime);
+            return dt.getHour() + dt.getMinute() / 60f;
+        } catch (DateTimeParseException | NullPointerException e) {
+            return null;
+        }
     }
 
     /**

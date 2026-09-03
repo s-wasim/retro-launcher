@@ -129,6 +129,40 @@ public class WeatherParserTest {
         assertNull(parseCodeRaw(42));
     }
 
+    // ---- daily sunrise/sunset -------------------------------------------
+
+    private static final String RECORDED_WITH_DAILY =
+            "{\"latitude\":52.52,\"longitude\":13.419,\"timezone\":\"Europe/Berlin\","
+            + "\"current_weather\":{\"temperature\":13.4,\"weathercode\":3},"
+            + "\"daily\":{\"time\":[\"2026-08-28\",\"2026-08-29\"],"
+            + "\"sunrise\":[\"2026-08-28T06:12\",\"2026-08-29T06:14\"],"
+            + "\"sunset\":[\"2026-08-28T20:31\",\"2026-08-29T20:29\"]}}";
+
+    @Test public void parsesSunriseSunsetAndTomorrowSunriseFromTheDailyBlock() {
+        SolarTimes t = WeatherParser.parseSolarTimes(RECORDED_WITH_DAILY, java.time.LocalDate.of(2026, 8, 28));
+        assertNotNull(t);
+        assertEquals(6f + 12f / 60f, t.sunriseHour, 0.001f);
+        assertEquals(20f + 31f / 60f, t.sunsetHour, 0.001f);
+        assertEquals(6f + 14f / 60f, t.tomorrowSunriseHour, 0.001f);
+        assertEquals(java.time.LocalDate.of(2026, 8, 28), t.date);
+    }
+
+    @Test public void absentDailyBlockYieldsNullSolarTimes() {
+        assertNull(WeatherParser.parseSolarTimes(
+                "{\"current_weather\":{\"temperature\":13.4,\"weathercode\":3}}",
+                java.time.LocalDate.of(2026, 8, 28)));
+    }
+
+    @Test public void malformedDailyBlockYieldsNullSolarTimes() {
+        assertNull(WeatherParser.parseSolarTimes(
+                "{\"daily\":{\"sunrise\":[\"not-a-time\"],\"sunset\":[]}}",
+                java.time.LocalDate.of(2026, 8, 28)));
+    }
+
+    @Test public void nullJsonYieldsNullSolarTimes() {
+        assertNull(WeatherParser.parseSolarTimes(null, java.time.LocalDate.of(2026, 8, 28)));
+    }
+
     // ---- scanner robustness ---------------------------------------------
 
     @Test public void currentWeatherUnitsDoesNotMasqueradeAsCurrentWeather() {
