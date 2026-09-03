@@ -4,9 +4,14 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import com.retro.launcher.core.SolarMath;
+import com.retro.launcher.core.SolarTimes;
 import com.retro.launcher.core.SyntheticWeather;
 import com.retro.launcher.core.Weather;
+import com.retro.launcher.core.WeatherFetch;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -105,13 +110,14 @@ public final class WeatherRepository {
 
             final double lat = fix[0], lon = fix[1];
             new Thread(() -> {
-                final Weather fetched = source.fetch(lat, lon);
+                final WeatherFetch fetched = source.fetch(lat, lon);
                 main.post(() -> {
                     inFlight.set(false);
-                    if (fetched == null) return;   // silent; the last good value stands
-                    reading = fetched;
+                    if (fetched == null || fetched.weather == null) return;   // silent; the last good value stands
+                    reading = fetched.weather;
                     readingAt = System.currentTimeMillis();
                     persist();
+                    if (fetched.solarTimes != null) persistSolarTimes(fetched.solarTimes);
                     if (onUpdated != null) onUpdated.run();
                 });
             }, "weather-fetch").start();
@@ -133,6 +139,45 @@ public final class WeatherRepository {
             return live;
         }
         return lastRememberedFix();
+    }
+
+    /**
+     * Today's sunrise, sunset and tomorrow's sunrise. Cache first (today's
+     * entry, if present); otherwise a local {@link SolarMath} computation
+     * from the current fix, cached for the rest of the day; otherwise null,
+     * which is exactly the signal {@link com.retro.launcher.core.SolarClock}
+     * treats as "no data — draw the fixed table". Safe to call from the main
+     * thread: the cache read is a SharedPreferences read, and SolarMath is
+     * pure local arithmetic, not a network call.
+     */
+    public SolarTimes solarTimes() {
+        LocalDate today = LocalDate.now();
+        SolarTimes cached = restoreSolarTimes(today);
+        if (cached != null) return cached;
+
+        double[] f = fix();
+        if (f == null) return null;
+
+        SolarTimes computed = SolarMath.sunTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
+        if (computed != null) persistSolarTimes(computed);
+        return computed;
+    }
+
+    private void persistSolarTimes(SolarTimes t) {
+        prefs.putLong(Prefs.K_SOL_EPOCH_DAY, t.date.toEpochDay());
+        prefs.putFloat(Prefs.K_SOL_SUNRISE, t.sunriseHour);
+        prefs.putFloat(Prefs.K_SOL_SUNSET, t.sunsetHour);
+        prefs.putFloat(Prefs.K_SOL_TOMORROW, t.tomorrowSunriseHour);
+    }
+
+    private SolarTimes restoreSolarTimes(LocalDate today) {
+        long storedEpochDay = prefs.getLong(Prefs.K_SOL_EPOCH_DAY, Long.MIN_VALUE);
+        if (storedEpochDay != today.toEpochDay()) return null; // missing, or a stale past date
+        return new SolarTimes(
+                prefs.getFloat(Prefs.K_SOL_SUNRISE, Float.NaN),
+                prefs.getFloat(Prefs.K_SOL_SUNSET, Float.NaN),
+                prefs.getFloat(Prefs.K_SOL_TOMORROW, Float.NaN),
+                today);
     }
 
     // ---- last good value, across restarts --------------------------------

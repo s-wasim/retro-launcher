@@ -47,6 +47,14 @@ public final class Prefs {
     public static final String K_WX_LAT   = "wxLat";
     public static final String K_WX_LON   = "wxLon";
 
+    // Tier 6. Today's solar times, cached by epoch day so a SolarMath
+    // recomputation or a cheap Prefs read both cost nothing on the common
+    // "already have today's" path.
+    public static final String K_SOL_EPOCH_DAY = "solEpochDay";
+    public static final String K_SOL_SUNRISE   = "solSunrise";
+    public static final String K_SOL_SUNSET    = "solSunset";
+    public static final String K_SOL_TOMORROW  = "solTomorrowSunrise";
+
     private final SharedPreferences sp;
 
     public Prefs(Context context) {
