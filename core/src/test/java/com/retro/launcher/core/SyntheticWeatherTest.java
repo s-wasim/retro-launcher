@@ -60,8 +60,15 @@ public class SyntheticWeatherTest {
     }
 
     @Test public void derivedWStaysBelowTheWetBandWhenPrecipIsZero() {
+        // Full cloud cover (1.0) hits the dry branch's own ceiling exactly
+        // at 0.62 (cloudCover * 0.62f) — the same value the wet branch's
+        // inclusive floor uses as precip -> 0. The two branches are
+        // designed to meet at this single shared boundary, so the dry side
+        // is checked inclusively too; what actually matters — that a
+        // cloud-only sky can never cross into a rain *label* — is guarded
+        // by the 0.64 band edge, well above this shared 0.62 point.
         Weather dry = new Weather(20, "OVERCAST", 1.0f, 0f, Precip.NONE, false, 0);
-        assertTrue("dry sky must never cross into the wet band", dry.w < 0.62f);
+        assertTrue("dry sky must never cross into the wet band", dry.w <= 0.62f);
     }
 
     @Test public void derivedWStaysInTheWetBandWhenPrecipIsPositive() {

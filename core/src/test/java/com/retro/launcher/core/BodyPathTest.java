@@ -50,11 +50,19 @@ public class BodyPathTest {
     }
 
     @Test public void moonHasZeroSlopeOnBothSidesOfTheVertex() {
+        // A secant over [0.5-eps, 0.5] on a pure quadratic branch equals the
+        // true derivative at the *midpoint* 0.5-eps/2, not at 0.5 itself, so
+        // it is exactly 4*drop*H*eps here (not O(eps^2)) — with H=234 and
+        // drop up to 0.5 that is ~0.47 at eps=1e-3, not sub-0.05. The
+        // tolerance below is picked to comfortably bound that known secant
+        // value while still being three orders of magnitude below the
+        // curve's true edge slope (~470 at the anchors), so it still
+        // meaningfully demonstrates "near zero at the vertex".
         float eps = 0.001f;
         float dLeft = (BodyPath.moonY(0.5f, H) - BodyPath.moonY(0.5f - eps, H)) / eps;
         float dRight = (BodyPath.moonY(0.5f + eps, H) - BodyPath.moonY(0.5f, H)) / eps;
-        assertEquals(0f, dLeft, 0.05f);
-        assertEquals(0f, dRight, 0.05f);
+        assertEquals(0f, dLeft, 0.5f);
+        assertEquals(0f, dRight, 0.5f);
     }
 
     @Test public void bothCurvesStayFiniteAcrossTheFullRange() {

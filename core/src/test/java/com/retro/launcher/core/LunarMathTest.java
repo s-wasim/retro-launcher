@@ -29,12 +29,20 @@ public class LunarMathTest {
     }
 
     @Test public void someDayInALunarMonthHasNeitherARiseNorASet() {
-        // The lunar day is ~24h50m, so at any latitude roughly once a month a
-        // calendar day has neither event.
+        // A calendar day with *neither* event (both rise and set skip it) is
+        // not the common "24h50m lunar day" skip — that usually drops only
+        // one of the two onto a neighbouring day (see
+        // someDayHasTheMoonSetBeforeItRisesAgain / the returns-in-range
+        // test), and empirically never both at once at Berlin's latitude
+        // across a full year of scanning. A full "neither" day is the
+        // moon's own near-polar-night analogue, reliable only at higher
+        // latitudes — verified here at 70N over the same March 2026 window
+        // used by the other tests in this file.
         boolean foundNull = false;
+        float highLat = 70f;
         LocalDate d = LocalDate.of(2026, 3, 1);
         for (int i = 0; i < 30 && !foundNull; i++) {
-            if (LunarMath.moonTimes(LAT, LON, d.plusDays(i), ZONE) == null) foundNull = true;
+            if (LunarMath.moonTimes(highLat, LON, d.plusDays(i), ZONE) == null) foundNull = true;
         }
         assertTrue("expected at least one no-rise-no-set day across a lunar month", foundNull);
     }

@@ -46,7 +46,11 @@ public final class BodyPath {
      * a monotonic result. NaN when the window is degenerate.
      */
     static float moonT(float hour, float moonriseHour, float moonsetHour) {
-        float end = moonsetHour <= moonriseHour ? moonsetHour + 24f : moonsetHour;
+        // Strict '<' so an exactly-equal rise/set (a degenerate window, not
+        // a genuine after-midnight moonset) falls through to span <= 0 and
+        // yields NaN below, rather than being folded into a spurious 24h
+        // window.
+        float end = moonsetHour < moonriseHour ? moonsetHour + 24f : moonsetHour;
         float span = end - moonriseHour;
         if (!(span > 0f)) return Float.NaN;
         float h = hour < moonriseHour ? hour + 24f : hour;
