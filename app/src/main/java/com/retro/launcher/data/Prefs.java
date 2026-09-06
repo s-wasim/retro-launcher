@@ -58,6 +58,8 @@ public final class Prefs {
     public static final String K_SOL_SUNRISE   = "solSunrise";
     public static final String K_SOL_SUNSET    = "solSunset";
     public static final String K_SOL_TOMORROW  = "solTomorrowSunrise";
+    public static final String K_SOL_MOONRISE = "solMoonrise";
+    public static final String K_SOL_MOONSET  = "solMoonset";
 
     // V9. The four independent weather channels, cached alongside K_WX_W so
     // a cold-start restore does not have to migrate from the old scalar.

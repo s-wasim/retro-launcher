@@ -4,6 +4,8 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import com.retro.launcher.core.LunarMath;
+import com.retro.launcher.core.Precip;
 import com.retro.launcher.core.SolarMath;
 import com.retro.launcher.core.SolarTimes;
 import com.retro.launcher.core.SyntheticWeather;
@@ -158,9 +160,16 @@ public final class WeatherRepository {
         double[] f = fix();
         if (f == null) return null;
 
-        SolarTimes computed = SolarMath.sunTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
-        if (computed != null) persistSolarTimes(computed);
-        return computed;
+        SolarTimes sun = SolarMath.sunTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
+        if (sun == null) return null;
+
+        LunarMath.LunarTimes moon = LunarMath.moonTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
+        SolarTimes combined = new SolarTimes(sun.sunriseHour, sun.sunsetHour, sun.tomorrowSunriseHour,
+                moon == null ? Float.NaN : moon.moonriseHour,
+                moon == null ? Float.NaN : moon.moonsetHour,
+                today);
+        persistSolarTimes(combined);
+        return combined;
     }
 
     private void persistSolarTimes(SolarTimes t) {
@@ -168,6 +177,8 @@ public final class WeatherRepository {
         prefs.putFloat(Prefs.K_SOL_SUNRISE, t.sunriseHour);
         prefs.putFloat(Prefs.K_SOL_SUNSET, t.sunsetHour);
         prefs.putFloat(Prefs.K_SOL_TOMORROW, t.tomorrowSunriseHour);
+        prefs.putFloat(Prefs.K_SOL_MOONRISE, t.moonriseHour);
+        prefs.putFloat(Prefs.K_SOL_MOONSET, t.moonsetHour);
     }
 
     private SolarTimes restoreSolarTimes(LocalDate today) {
@@ -177,6 +188,8 @@ public final class WeatherRepository {
                 prefs.getFloat(Prefs.K_SOL_SUNRISE, Float.NaN),
                 prefs.getFloat(Prefs.K_SOL_SUNSET, Float.NaN),
                 prefs.getFloat(Prefs.K_SOL_TOMORROW, Float.NaN),
+                prefs.getFloat(Prefs.K_SOL_MOONRISE, Float.NaN),
+                prefs.getFloat(Prefs.K_SOL_MOONSET, Float.NaN),
                 today);
     }
 
@@ -186,6 +199,11 @@ public final class WeatherRepository {
         prefs.putInt(Prefs.K_WX_TEMP, reading.tempC);
         prefs.putString(Prefs.K_WX_LABEL, reading.label);
         prefs.putFloat(Prefs.K_WX_W, reading.w);
+        prefs.putFloat(Prefs.K_WX_CLOUD, reading.cloudCover);
+        prefs.putFloat(Prefs.K_WX_PRECIP, reading.precip);
+        prefs.putInt(Prefs.K_WX_TYPE, reading.type.ordinal());
+        prefs.putBool(Prefs.K_WX_THUNDER, reading.thunder);
+        prefs.putInt(Prefs.K_WX_PROB, reading.precipProbability);
         prefs.putLong(Prefs.K_WX_AT, readingAt);
     }
 
@@ -193,10 +211,28 @@ public final class WeatherRepository {
         long at = prefs.getLong(Prefs.K_WX_AT, 0L);
         if (at <= 0L) return;
         if (System.currentTimeMillis() - at > MAX_RESTORE_AGE_MS) return;
-        reading = new Weather(
-                prefs.getInt(Prefs.K_WX_TEMP, 0),
-                prefs.getString(Prefs.K_WX_LABEL, "CLEAR"),
-                prefs.getFloat(Prefs.K_WX_W, 0f));
+
+        int tempC = prefs.getInt(Prefs.K_WX_TEMP, 0);
+        String label = prefs.getString(Prefs.K_WX_LABEL, "CLEAR");
+        float legacyW = prefs.getFloat(Prefs.K_WX_W, 0f);
+
+        // A reading cached before V9 has no channel keys — K_WX_CLOUD
+        // defaults to NaN, the marker that this is a one-time migration from
+        // the old single-scalar reading rather than a genuine zero cover.
+        float cloudCover = prefs.getFloat(Prefs.K_WX_CLOUD, Float.NaN);
+        if (Float.isNaN(cloudCover)) {
+            cloudCover = com.retro.launcher.core.SkyRenderer.smooth(0.10f, 0.66f, legacyW);
+            float precip = com.retro.launcher.core.SkyRenderer.smooth(0.62f, 0.98f, legacyW);
+            boolean thunder = legacyW >= 0.95f;
+            Precip type = precip > 0f ? Precip.RAIN : Precip.NONE;
+            reading = new Weather(tempC, label, cloudCover, precip, type, thunder, 0);
+        } else {
+            float precip = prefs.getFloat(Prefs.K_WX_PRECIP, 0f);
+            Precip type = Precip.values()[prefs.getInt(Prefs.K_WX_TYPE, Precip.NONE.ordinal())];
+            boolean thunder = prefs.getBool(Prefs.K_WX_THUNDER, false);
+            int prob = prefs.getInt(Prefs.K_WX_PROB, 0);
+            reading = new Weather(tempC, label, cloudCover, precip, type, thunder, prob);
+        }
         readingAt = at;
     }
 
