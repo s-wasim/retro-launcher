@@ -50,9 +50,23 @@ public class SyntheticWeatherTest {
     }
 
     @Test public void fahrenheitConversionAtKnownPoints() {
-        assertEquals(32, new Weather(0, "CLEAR", 0f).tempIn("F"));
-        assertEquals(212, new Weather(100, "CLEAR", 0f).tempIn("F"));
-        assertEquals(0, new Weather(0, "CLEAR", 0f).tempIn("C"));
+        assertEquals(32, new Weather(0, "CLEAR", 0f, 0f, Precip.NONE, false, 0).tempIn("F"));
+        assertEquals(212, new Weather(100, "CLEAR", 0f, 0f, Precip.NONE, false, 0).tempIn("F"));
+        assertEquals(0, new Weather(0, "CLEAR", 0f, 0f, Precip.NONE, false, 0).tempIn("C"));
+    }
+
+    @Test public void thunderAlwaysDerivesTheMaximumWScalar() {
+        assertEquals(1.0f, new Weather(20, "THUNDERSTORM", 0.4f, 0f, Precip.NONE, true, 0).w, 0.001f);
+    }
+
+    @Test public void derivedWStaysBelowTheWetBandWhenPrecipIsZero() {
+        Weather dry = new Weather(20, "OVERCAST", 1.0f, 0f, Precip.NONE, false, 0);
+        assertTrue("dry sky must never cross into the wet band", dry.w < 0.62f);
+    }
+
+    @Test public void derivedWStaysInTheWetBandWhenPrecipIsPositive() {
+        Weather wet = new Weather(10, "LIGHT RAIN", 0.9f, 0.02f, Precip.RAIN, false, 0);
+        assertTrue(wet.w >= 0.62f);
     }
 
     @Test public void wIsAlwaysReturnedInUnitRange() {
