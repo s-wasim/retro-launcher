@@ -5,13 +5,13 @@ import static org.junit.Assert.*;
 
 public class WeatherParserTest {
 
-    /** A verbatim Open-Meteo reply to
-     *  /v1/forecast?latitude=52.52&longitude=13.419&current_weather=true */
+    /** A modern Open-Meteo reply to
+     *  /v1/forecast?...&current=temperature_2m,weather_code,cloud_cover,precipitation,precipitation_probability */
     private static final String RECORDED =
-            "{\"latitude\":52.52,\"longitude\":13.419,\"generationtime_ms\":0.2378225326538086,"
+            "{\"latitude\":52.52,\"longitude\":13.419,\"generationtime_ms\":0.23,"
             + "\"utc_offset_seconds\":0,\"timezone\":\"GMT\",\"timezone_abbreviation\":\"GMT\","
-            + "\"elevation\":38.0,\"current_weather\":{\"temperature\":13.4,\"windspeed\":10.3,"
-            + "\"winddirection\":204,\"weathercode\":3,\"is_day\":1,\"time\":\"2026-08-28T20:00\"}}";
+            + "\"elevation\":38.0,\"current\":{\"time\":\"2026-08-28T20:00\",\"temperature_2m\":13.4,"
+            + "\"weather_code\":3,\"cloud_cover\":88,\"precipitation\":0.0,\"precipitation_probability\":10}}";
 
     // ---- the recorded payload ------------------------------------------
 
@@ -20,13 +20,81 @@ public class WeatherParserTest {
     }
 
     @Test public void readsConditionFromTheRecordedPayload() {
-        // WMO 3 is overcast.
         assertEquals("OVERCAST", WeatherParser.parse(RECORDED).label);
+    }
+
+    @Test public void readsCloudCoverDirectlyFromTheChannel() {
+        assertEquals(0.88f, WeatherParser.parse(RECORDED).cloudCover, 0.001f);
+    }
+
+    @Test public void readsPrecipProbabilityDirectly() {
+        assertEquals(10, WeatherParser.parse(RECORDED).precipProbability);
     }
 
     @Test public void recordedPayloadYieldsAnInRangeSkyScalar() {
         float w = WeatherParser.parse(RECORDED).w;
         assertTrue("w out of range: " + w, w >= 0f && w <= 1f);
+    }
+
+    // ---- the four channels are independent -------------------------------
+
+    @Test public void lightDrizzleDrawsFewCloudsAndSparseRain() {
+        String json = "{\"current\":{\"temperature_2m\":12.0,\"weather_code\":51,"
+                + "\"cloud_cover\":20,\"precipitation\":0.2,\"precipitation_probability\":60}}";
+        Weather w = WeatherParser.parse(json);
+        assertEquals(0.20f, w.cloudCover, 0.001f);
+        assertEquals(Precip.RAIN, w.type);
+        assertTrue("expected a light precip intensity", w.precip > 0f && w.precip < 0.2f);
+        assertFalse(w.thunder);
+    }
+
+    @Test public void dryThunderstormHasThunderAndZeroPrecip() {
+        // Cloud is high, precipitation is explicitly zero — a real "storm
+        // building, no rain yet" reading, which the old coupled-scalar
+        // system could never represent.
+        String json = "{\"current\":{\"temperature_2m\":22.0,\"weather_code\":95,"
+                + "\"cloud_cover\":95,\"precipitation\":0.0,\"precipitation_probability\":30}}";
+        Weather w = WeatherParser.parse(json);
+        assertTrue(w.thunder);
+        assertEquals(0f, w.precip, 0.0001f);
+        assertEquals(Precip.NONE, w.type);
+        assertEquals(1.0f, w.w, 0.001f);
+    }
+
+    @Test public void snowCodeWithPrecipitationYieldsSnowType() {
+        String json = "{\"current\":{\"temperature_2m\":-3.0,\"weather_code\":73,"
+                + "\"cloud_cover\":80,\"precipitation\":1.5,\"precipitation_probability\":90}}";
+        Weather w = WeatherParser.parse(json);
+        assertEquals(Precip.SNOW, w.type);
+        assertTrue(w.precip > 0f);
+    }
+
+    @Test public void heavyRainSaturatesPrecipAtFourMillimetresAnHour() {
+        String json = "{\"current\":{\"temperature_2m\":15.0,\"weather_code\":65,"
+                + "\"cloud_cover\":100,\"precipitation\":4.0,\"precipitation_probability\":100}}";
+        assertEquals(1.0f, WeatherParser.parse(json).precip, 0.001f);
+    }
+
+    @Test public void precipitationAboveTheSaturationPointClampsToOne() {
+        String json = "{\"current\":{\"temperature_2m\":15.0,\"weather_code\":65,"
+                + "\"cloud_cover\":100,\"precipitation\":40.0,\"precipitation_probability\":100}}";
+        assertEquals(1.0f, WeatherParser.parse(json).precip, 0.001f);
+    }
+
+    @Test public void missingCloudCoverFallsBackToTheCodeImpliedValue() {
+        // weather_code 3 (overcast) implies a high cloud cover in the old
+        // per-code table, applied only because cloud_cover is absent here.
+        String json = "{\"current\":{\"temperature_2m\":13.0,\"weather_code\":3,"
+                + "\"precipitation\":0.0,\"precipitation_probability\":0}}";
+        Weather w = WeatherParser.parse(json);
+        assertTrue("expected a substantial implied cloud cover for overcast", w.cloudCover > 0.3f);
+    }
+
+    @Test public void missingPrecipitationFallsBackToTheCodeImpliedValue() {
+        String json = "{\"current\":{\"temperature_2m\":13.0,\"weather_code\":65,"
+                + "\"cloud_cover\":100,\"precipitation_probability\":100}}";
+        Weather w = WeatherParser.parse(json);
+        assertTrue("expected a substantial implied precip for heavy rain", w.precip > 0.3f);
     }
 
     // ---- code to condition ---------------------------------------------
@@ -59,12 +127,6 @@ public class WeatherParserTest {
         assertEquals("LIGHT SNOW", parseCode(66).label);
     }
 
-    @Test public void wetterCodesProduceALargerSkyScalar() {
-        assertTrue(parseCode(95).w > parseCode(61).w);
-        assertTrue(parseCode(61).w > parseCode(2).w);
-        assertTrue(parseCode(2).w > parseCode(0).w);
-    }
-
     // ---- temperature handling ------------------------------------------
 
     @Test public void temperatureRoundsToTheNearestDegree() {
@@ -89,24 +151,24 @@ public class WeatherParserTest {
         assertNull(WeatherParser.parse(""));
     }
 
-    @Test public void anObjectWithoutCurrentWeatherYieldsNoUpdate() {
+    @Test public void anObjectWithoutCurrentYieldsNoUpdate() {
         assertNull(WeatherParser.parse("{\"latitude\":52.5,\"longitude\":13.4}"));
     }
 
-    @Test public void anEmptyCurrentWeatherYieldsNoUpdate() {
-        assertNull(WeatherParser.parse("{\"current_weather\":{}}"));
+    @Test public void anEmptyCurrentYieldsNoUpdate() {
+        assertNull(WeatherParser.parse("{\"current\":{}}"));
     }
 
-    @Test public void missingWeathercodeYieldsNoUpdate() {
-        assertNull(WeatherParser.parse("{\"current_weather\":{\"temperature\":13.4}}"));
+    @Test public void missingWeatherCodeYieldsNoUpdate() {
+        assertNull(WeatherParser.parse("{\"current\":{\"temperature_2m\":13.4}}"));
     }
 
     @Test public void missingTemperatureYieldsNoUpdate() {
-        assertNull(WeatherParser.parse("{\"current_weather\":{\"weathercode\":3}}"));
+        assertNull(WeatherParser.parse("{\"current\":{\"weather_code\":3}}"));
     }
 
     @Test public void truncatedJsonYieldsNoUpdate() {
-        assertNull(WeatherParser.parse("{\"current_weather\":{\"temperature\":13."));
+        assertNull(WeatherParser.parse("{\"current\":{\"temperature_2m\":13."));
     }
 
     @Test public void anHtmlErrorPageYieldsNoUpdate() {
@@ -120,12 +182,10 @@ public class WeatherParserTest {
 
     @Test public void aNonNumericTemperatureYieldsNoUpdate() {
         assertNull(WeatherParser.parse(
-                "{\"current_weather\":{\"temperature\":\"warm\",\"weathercode\":3}}"));
+                "{\"current\":{\"temperature_2m\":\"warm\",\"weather_code\":3}}"));
     }
 
     @Test public void anUnrecognisedWeatherCodeYieldsNoUpdate() {
-        // The WMO code set is closed. A code outside it means our table is
-        // wrong, and keeping the last good reading beats inventing a sky.
         assertNull(parseCodeRaw(42));
     }
 
@@ -133,7 +193,7 @@ public class WeatherParserTest {
 
     private static final String RECORDED_WITH_DAILY =
             "{\"latitude\":52.52,\"longitude\":13.419,\"timezone\":\"Europe/Berlin\","
-            + "\"current_weather\":{\"temperature\":13.4,\"weathercode\":3},"
+            + "\"current\":{\"temperature_2m\":13.4,\"weather_code\":3},"
             + "\"daily\":{\"time\":[\"2026-08-28\",\"2026-08-29\"],"
             + "\"sunrise\":[\"2026-08-28T06:12\",\"2026-08-29T06:14\"],"
             + "\"sunset\":[\"2026-08-28T20:31\",\"2026-08-29T20:29\"]}}";
@@ -149,7 +209,7 @@ public class WeatherParserTest {
 
     @Test public void absentDailyBlockYieldsNullSolarTimes() {
         assertNull(WeatherParser.parseSolarTimes(
-                "{\"current_weather\":{\"temperature\":13.4,\"weathercode\":3}}",
+                "{\"current\":{\"temperature_2m\":13.4,\"weather_code\":3}}",
                 java.time.LocalDate.of(2026, 8, 28)));
     }
 
@@ -165,33 +225,32 @@ public class WeatherParserTest {
 
     // ---- scanner robustness ---------------------------------------------
 
-    @Test public void currentWeatherUnitsDoesNotMasqueradeAsCurrentWeather() {
-        // The newer /v1/forecast?current= form emits a units object whose key
-        // has "current_weather" as a prefix. Reading it instead would give
-        // back the string "°C" as a temperature.
-        String json = "{\"current_weather_units\":{\"temperature\":\"°C\",\"weathercode\":\"wmo\"},"
-                + "\"current_weather\":{\"temperature\":9.1,\"weathercode\":0}}";
+    @Test public void currentUnitsDoesNotMasqueradeAsCurrent() {
+        // The modern API emits a units object whose key has "current" as a
+        // prefix. Reading it instead would give back "°C" as a temperature.
+        String json = "{\"current_units\":{\"temperature_2m\":\"°C\",\"weather_code\":\"wmo code\"},"
+                + "\"current\":{\"temperature_2m\":9.1,\"weather_code\":0}}";
         assertEquals(9, WeatherParser.parse(json).tempC);
     }
 
-    @Test public void keyOrderInsideCurrentWeatherDoesNotMatter() {
+    @Test public void keyOrderInsideCurrentDoesNotMatter() {
         assertEquals(9, WeatherParser.parse(
-                "{\"current_weather\":{\"weathercode\":0,\"temperature\":9.1}}").tempC);
+                "{\"current\":{\"weather_code\":0,\"temperature_2m\":9.1}}").tempC);
     }
 
-    @Test public void unknownKeysInsideCurrentWeatherAreIgnored() {
-        assertEquals(9, WeatherParser.parse("{\"current_weather\":{\"interval\":900,"
-                + "\"temperature\":9.1,\"weathercode\":0,\"future_field\":{\"a\":1}}}").tempC);
+    @Test public void unknownKeysInsideCurrentAreIgnored() {
+        assertEquals(9, WeatherParser.parse("{\"current\":{\"interval\":900,"
+                + "\"temperature_2m\":9.1,\"weather_code\":0,\"future_field\":{\"a\":1}}}").tempC);
     }
 
     @Test public void whitespaceAroundSeparatorsIsTolerated() {
         assertEquals(9, WeatherParser.parse(
-                "{ \"current_weather\" : { \"temperature\" : 9.1 , \"weathercode\" : 0 } }").tempC);
+                "{ \"current\" : { \"temperature_2m\" : 9.1 , \"weather_code\" : 0 } }").tempC);
     }
 
     @Test public void bracesInsideStringValuesDoNotEndTheObject() {
-        assertEquals(9, WeatherParser.parse("{\"current_weather\":{\"time\":\"}{\","
-                + "\"temperature\":9.1,\"weathercode\":0}}").tempC);
+        assertEquals(9, WeatherParser.parse("{\"current\":{\"time\":\"}{\","
+                + "\"temperature_2m\":9.1,\"weather_code\":0}}").tempC);
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -204,12 +263,12 @@ public class WeatherParserTest {
 
     private static Weather parseCodeRaw(int code) {
         return WeatherParser.parse(
-                "{\"current_weather\":{\"temperature\":5.0,\"weathercode\":" + code + "}}");
+                "{\"current\":{\"temperature_2m\":5.0,\"weather_code\":" + code + "}}");
     }
 
     private static Weather parseTemp(String temp) {
         Weather w = WeatherParser.parse(
-                "{\"current_weather\":{\"temperature\":" + temp + ",\"weathercode\":0}}");
+                "{\"current\":{\"temperature_2m\":" + temp + ",\"weather_code\":0}}");
         assertNotNull(w);
         return w;
     }
