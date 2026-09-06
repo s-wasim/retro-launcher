@@ -42,7 +42,7 @@ public final class OpenMeteoWeather implements WeatherSource {
             URL url = new URL(ENDPOINT
                     + "?latitude=" + coord(latitude)
                     + "&longitude=" + coord(longitude)
-                    + "&current_weather=true"
+                    + "&current=temperature_2m,weather_code,cloud_cover,precipitation,precipitation_probability"
                     + "&daily=sunrise,sunset&timezone=auto&forecast_days=2");
 
             conn = (HttpsURLConnection) url.openConnection();
