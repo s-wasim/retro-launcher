@@ -35,7 +35,7 @@ public final class Weather {
      * {@code 0.62} so a cloud-only sky can never cross into a rain label —
      * the mislabelling V9 fixes.
      */
-    static float derive(float cloudCover, float precip, boolean thunder) {
+    public static float derive(float cloudCover, float precip, boolean thunder) {
         if (thunder) return 1.0f;
         if (precip > 0f) return 0.62f + precip * 0.36f;
         return cloudCover * 0.62f;

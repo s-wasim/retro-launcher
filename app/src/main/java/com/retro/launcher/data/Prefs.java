@@ -4,6 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.retro.launcher.core.PaletteResolver;
+import com.retro.launcher.core.Precip;
+import com.retro.launcher.core.SyntheticWeather;
+import com.retro.launcher.core.Weather;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,6 +58,25 @@ public final class Prefs {
     public static final String K_SOL_SUNRISE   = "solSunrise";
     public static final String K_SOL_SUNSET    = "solSunset";
     public static final String K_SOL_TOMORROW  = "solTomorrowSunrise";
+
+    // V9. The four independent weather channels, cached alongside K_WX_W so
+    // a cold-start restore does not have to migrate from the old scalar.
+    public static final String K_WX_CLOUD   = "wxCloud";
+    public static final String K_WX_PRECIP  = "wxPrecip";
+    public static final String K_WX_TYPE    = "wxType";
+    public static final String K_WX_THUNDER = "wxThunder";
+    public static final String K_WX_PROB    = "wxProb";
+
+    // V9 §7b. Manual wallpaper override — a test/preview surface, not just a
+    // debug switch, so it persists until the user turns it off.
+    public static final String K_WX_OVERRIDE = "wxOverride";
+    public static final String K_OV_CLOUD    = "ovCloud";
+    public static final String K_OV_PRECIP   = "ovPrecip";
+    public static final String K_OV_TEMP     = "ovTemp";
+    public static final String K_OV_HOUR     = "ovHour";
+    public static final String K_OV_MOON     = "ovMoon";
+    public static final String K_OV_THUNDER  = "ovThunder";
+    public static final String K_OV_SNOW     = "ovSnow";
 
     private final SharedPreferences sp;
 
@@ -150,4 +172,26 @@ public final class Prefs {
     public int    getInt(String key, int fallback)       { return sp.getInt(key, fallback); }
     public long   getLong(String key, long fallback)     { return sp.getLong(key, fallback); }
     public float  getFloat(String key, float fallback)   { return sp.getFloat(key, fallback); }
+    public boolean getBool(String key, boolean fallback) { return sp.getBoolean(key, fallback); }
+
+    /** V9 §7b: off by default — a launcher that silently ignores real
+     *  weather would be a surprising default. */
+    public boolean manualWallpaper() { return sp.getBoolean(K_WX_OVERRIDE, false); }
+
+    public float overrideHour()      { return sp.getFloat(K_OV_HOUR, 12f); }
+    public float overrideMoonPhase() { return sp.getFloat(K_OV_MOON, 0.5f); }
+
+    public Weather overrideWeather() {
+        float cloud = sp.getFloat(K_OV_CLOUD, 0f);
+        float precip = sp.getFloat(K_OV_PRECIP, 0f);
+        int temp = Math.round(sp.getFloat(K_OV_TEMP, 20f));
+        boolean thunder = sp.getBoolean(K_OV_THUNDER, false);
+        boolean snow = sp.getBoolean(K_OV_SNOW, false);
+        com.retro.launcher.core.Precip type = precip > 0f
+                ? (snow ? com.retro.launcher.core.Precip.SNOW : com.retro.launcher.core.Precip.RAIN)
+                : com.retro.launcher.core.Precip.NONE;
+        float w = Weather.derive(cloud, precip, thunder);
+        return new Weather(temp, SyntheticWeather.label(w, snow), cloud, precip, type, thunder,
+                Math.round(precip * 100f));
+    }
 }
