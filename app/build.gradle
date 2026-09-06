@@ -63,8 +63,26 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    buildFeatures {
+        aidl true
+    }
 }
 
 dependencies {
     implementation project(':core')
+
+    // The project's first external dependency. Contained entirely to
+    // ShizukuLock.java, the one file in the app that imports Shizuku types —
+    // see the V8 design spec item 5.
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+
+    // Shizuku's own artifacts pull this in only as `implementation`, so it
+    // never reaches this module's compile classpath transitively even
+    // though it's on the runtime classpath. ShizukuLockService.java imports
+    // androidx.annotation.Keep directly, so it needs to be a direct
+    // dependency here too. Pinned to the exact version Shizuku already
+    // resolves to avoid a second copy on the classpath.
+    implementation 'androidx.annotation:annotation:1.3.0'
 }

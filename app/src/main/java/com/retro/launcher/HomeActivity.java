@@ -14,6 +14,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -42,6 +43,7 @@ import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PixelArtIcons;
+import com.retro.launcher.lock.ShizukuLock;
 import com.retro.launcher.shade.ShadeService;
 import com.retro.launcher.sky.SkyView;
 import com.retro.launcher.ui.BottomSheet;
@@ -63,6 +65,7 @@ import java.util.List;
 public class HomeActivity extends Activity {
 
     private static final int REQ_LOCATION = 1;
+    private static final int REQ_SHIZUKU = 2;
 
     private LauncherRoot root;
     private Haptics haptics;
@@ -97,6 +100,7 @@ public class HomeActivity extends Activity {
         @Override public void run() {
             refreshPalette();
             refreshTime();
+            refreshSkyLocation();
             // Cheap: the repository's own policy decides whether this minute
             // is one where a fetch is actually due.
             weatherRepository.refresh(false, HomeActivity.this::refreshTime);
@@ -152,6 +156,8 @@ public class HomeActivity extends Activity {
             @Override public void onEnableDeviceLock() { requestLockCapability(); }
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
             @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
+            @Override public void onEnableOverlay() { openOverlaySettings(); }
+            @Override public void onEnableShizukuLock() { enableShizukuLock(); }
         });
 
         screenTime = new ScreenTimePanel(this, metrics, prefs);
@@ -398,11 +404,14 @@ public class HomeActivity extends Activity {
         sky.setTint(prefs.tint() ? palette.ramp() : null);
     }
 
-    /** The moon's phase is the same everywhere; which way up it looks is not.
-     *  Latitude comes from the coarse fix the weather already keeps. */
+    /** The moon's phase is the same everywhere; which way up it looks, and
+     *  what real time maps onto the sky gradient, are not. Both come from
+     *  the coarse fix and solar times the weather repository already keeps. */
     private void refreshSkyLocation() {
         double[] fix = weatherRepository.fix();
-        sky.setLatitude(fix == null ? Float.NaN : (float) fix[0]);
+        sky.setLocation(fix == null ? Float.NaN : (float) fix[0],
+                         fix == null ? Float.NaN : (float) fix[1]);
+        sky.setSolarTimes(weatherRepository.solarTimes());
     }
 
     private void refreshTime() {
@@ -441,6 +450,8 @@ public class HomeActivity extends Activity {
 
         settings.setDeviceLockStatus(lockRoute());
         settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
+        settings.setShizukuLockStatus(prefs.shizukuLockEnabled(), ShizukuLock.hasPermission());
+        settings.setOverlayStatus(hasOverlayPermission());
 
         boolean defaultLauncher = isDefaultLauncher();
         settings.setDefaultLauncherStatus(defaultLauncher);
@@ -472,10 +483,13 @@ public class HomeActivity extends Activity {
                 && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
     }
 
-    /** Which of the two lock routes is available right now — see
+    /** Which of the three lock routes is available right now — see
      *  {@link LockRoute} for why the order matters. */
     private LockRoute lockRoute() {
-        return LockRoute.choose(ShadeService.canLockScreen(this), canLockViaAdmin());
+        return LockRoute.choose(
+                ShizukuLock.isAvailable(prefs.shizukuLockEnabled()),
+                ShadeService.canLockScreen(this),
+                canLockViaAdmin());
     }
 
     /**
@@ -493,6 +507,7 @@ public class HomeActivity extends Activity {
      * other permission-adjacent flows in this activity.
      */
     private void lockDevice() {
+        if (ShizukuLock.isAvailable(prefs.shizukuLockEnabled()) && ShizukuLock.lock()) return;
         if (ShadeService.lockScreen()) return;
         if (canLockViaAdmin()) {
             try {
@@ -505,6 +520,16 @@ public class HomeActivity extends Activity {
             }
         }
         requestLockCapability();
+    }
+
+    /** The SHIZUKU LOCK row's fix action: turn the toggle on (if it was
+     *  off) and (re-)request permission — this also covers "paired before,
+     *  needs re-pairing after a reboot", which looks identical to Shizuku's
+     *  API as "not permitted yet". */
+    private void enableShizukuLock() {
+        if (!prefs.shizukuLockEnabled()) prefs.putBool(Prefs.K_SHIZUKU, true);
+        ShizukuLock.requestPermission(REQ_SHIZUKU);
+        refreshPermissionStatus();
     }
 
     /**
@@ -590,6 +615,20 @@ public class HomeActivity extends Activity {
      *  fallback — see {@link ShadeService}. */
     private void openAccessibilitySettings() {
         startSafely(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    }
+
+    /** Whether the launcher currently holds the "draw over other apps"
+     *  special-access permission. */
+    private boolean hasOverlayPermission() {
+        return Settings.canDrawOverlays(this);
+    }
+
+    /** Sends the user to the system's "draw over other apps" settings screen
+     *  for this app — SYSTEM_ALERT_WINDOW is special access, not a runtime
+     *  permission, so there is no requestPermissions() path for it. */
+    private void openOverlaySettings() {
+        startSafely(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())));
     }
 
     /**

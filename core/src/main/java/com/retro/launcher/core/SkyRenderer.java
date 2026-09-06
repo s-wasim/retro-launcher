@@ -153,8 +153,8 @@ public final class SkyRenderer {
         final float botR = sky[3] * dark, botG = sky[4] * dark, botB = sky[5] * dark;
 
         // Body positions — DESIGN_NOTES §2b.
-        final float thSun  = (hour - 6f) / 12f * (float) Math.PI;
-        final float thMoon = thSun + (float) Math.PI;
+        final float thSun  = sunAngle(hour);
+        final float thMoon = moonAngle(hour, moonPhase);
         final float travel = 0.3125f * h;
         final float sunX  = 72f - (float) Math.cos(thSun)  * 60f;
         final float moonX = 36f - (float) Math.cos(thMoon) * 60f;
@@ -492,8 +492,47 @@ public final class SkyRenderer {
         }
     }
 
+    /** The sun's hour angle: 0 at 06:00, π at 18:00. */
+    static float sunAngle(float hour) {
+        return (hour - 6f) / 12f * (float) Math.PI;
+    }
+
+    /**
+     * The moon's hour angle. The moon lags the sun by exactly its
+     * elongation: new moon ({@code phase 0}) puts it on the sun; full
+     * ({@code phase 0.5}) puts it opposite — the one case the old fixed
+     * {@code thSun + π} formula got right, since it assumed every night was
+     * a full moon. The quarters sit a quarter turn off, matching them
+     * rising/setting roughly six hours from the sun.
+     *
+     * <p>Ignores lunar declination and the parallactic angle, so this is
+     * right to roughly the hour rather than the minute — see MoonPhase's
+     * own javadoc for the same limit on the phase itself. Against a 12px
+     * disc that is the correct place to stop.
+     */
+    static float moonAngle(float hour, float phase) {
+        return sunAngle(hour) + 2f * (float) Math.PI * phase;
+    }
+
+    /** Day span, in hours, between the sky gradient's dawn and dusk
+     *  anchors — see {@link SolarClock}. */
+    private static final float DAY_SPAN_HOURS = SolarClock.SUNSET_ANCHOR - SolarClock.SUNRISE_ANCHOR;
+    private static final float NIGHT_SPAN_HOURS = 24f - DAY_SPAN_HOURS;
+
+    /**
+     * Sun altitude proxy: {@code 0} at both {@link SolarClock#SUNRISE_ANCHOR}
+     * and {@link SolarClock#SUNSET_ANCHOR}, {@code 1} at solar noon
+     * (midway between them), {@code -1} at solar midnight. Piecewise so it
+     * stays continuous and consistent with the anchors {@code SolarClock}
+     * warps real time onto, rather than the fixed 6/18 the table used to
+     * assume.
+     */
     public static float sunAlt(float hour) {
-        return (float) Math.sin((hour - 6f) / 12f * Math.PI);
+        if (hour >= SolarClock.SUNRISE_ANCHOR && hour <= SolarClock.SUNSET_ANCHOR) {
+            return (float) Math.sin(Math.PI * (hour - SolarClock.SUNRISE_ANCHOR) / DAY_SPAN_HOURS);
+        }
+        float h = hour < SolarClock.SUNRISE_ANCHOR ? hour + 24f : hour;
+        return -(float) Math.sin(Math.PI * (h - SolarClock.SUNSET_ANCHOR) / NIGHT_SPAN_HOURS);
     }
 
     public static float smooth(float e0, float e1, float x) {

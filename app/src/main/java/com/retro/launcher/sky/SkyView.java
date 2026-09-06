@@ -10,6 +10,8 @@ import android.view.TextureView;
 
 import com.retro.launcher.core.MoonPhase;
 import com.retro.launcher.core.SkyRenderer;
+import com.retro.launcher.core.SolarClock;
+import com.retro.launcher.core.SolarTimes;
 
 import java.util.Calendar;
 
@@ -54,6 +56,8 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
     private volatile int[] tintRamp;
     private volatile float desaturation;
     private volatile float latitude = Float.NaN;   // no fix yet
+    private volatile float longitude = Float.NaN;  // no fix yet
+    private volatile SolarTimes solarTimes;         // null until known
 
     private final long startNanos = System.nanoTime();
 
@@ -69,10 +73,20 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
 
     public void setDesaturation(float amount) { this.desaturation = amount; }
 
-    /** The latitude of the coarse fix the weather already keeps, which is all
-     *  the moon needs: it decides which way up the phase is drawn.
-     *  {@code Float.NaN} means "no fix" and reads as the northern view. */
-    public void setLatitude(float degrees) { this.latitude = degrees; }
+    /**
+     * The coarse fix the weather already keeps. Latitude decides which way
+     * up the moon's phase is drawn ({@code Float.NaN} means "no fix" and
+     * reads as the northern view); both feed {@link SolarClock}'s time warp
+     * once {@link #setSolarTimes} has a value.
+     */
+    public void setLocation(float latitudeDegrees, float longitudeDegrees) {
+        this.latitude = latitudeDegrees;
+        this.longitude = longitudeDegrees;
+    }
+
+    /** Today's sunrise/sunset, or null when none is known yet — the sky then
+     *  draws against the fixed 6.2/18.4 table instead of a warped one. */
+    public void setSolarTimes(SolarTimes times) { this.solarTimes = times; }
 
     @Override public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         surfaceReady = true;
@@ -146,7 +160,11 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         r.setDesaturation(desaturation);
         r.setSouthernView(MoonPhase.southernView(latitude));
 
-        float hour = decimalHour();
+        float realHour = decimalHour();
+        SolarTimes times = solarTimes;
+        float hour = times == null
+                ? realHour
+                : SolarClock.warp(realHour, times.sunriseHour, times.sunsetHour, times.tomorrowSunriseHour);
         float seconds = (System.nanoTime() - startNanos) / 1_000_000_000f;
         // Seven sines a frame against a 108xN pixel loop — not worth caching,
         // and recomputing means the terminator creeps in real time.

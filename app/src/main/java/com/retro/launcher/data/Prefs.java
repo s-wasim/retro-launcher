@@ -36,6 +36,7 @@ public final class Prefs {
     public static final String K_LIMIT    = "limit";
     public static final String K_HINT     = "hint";
     public static final String K_HAPTIC  = "haptics";
+    public static final String K_SHIZUKU = "shizukuLock";
 
     // Tier 5. The last good weather reading and the fix it was taken at, so a
     // cold start shows yesterday's number instead of "--°" while the first
@@ -46,6 +47,14 @@ public final class Prefs {
     public static final String K_WX_AT    = "wxAt";
     public static final String K_WX_LAT   = "wxLat";
     public static final String K_WX_LON   = "wxLon";
+
+    // Tier 6. Today's solar times, cached by epoch day so a SolarMath
+    // recomputation or a cheap Prefs read both cost nothing on the common
+    // "already have today's" path.
+    public static final String K_SOL_EPOCH_DAY = "solEpochDay";
+    public static final String K_SOL_SUNRISE   = "solSunrise";
+    public static final String K_SOL_SUNSET    = "solSunset";
+    public static final String K_SOL_TOMORROW  = "solTomorrowSunrise";
 
     private final SharedPreferences sp;
 
@@ -66,6 +75,10 @@ public final class Prefs {
     /** Default on: a launcher that never buzzes reads as broken, and the
      *  toggle is one tap away in Settings for anyone who disagrees. */
     public boolean haptics()   { return sp.getBoolean(K_HAPTIC, true); }
+
+    /** Default off: a second app to install and a pairing that must be
+     *  redone after every reboot is a real cost, so the user opts in. */
+    public boolean shizukuLockEnabled() { return sp.getBoolean(K_SHIZUKU, false); }
 
     /** Dock is stored as a newline-joined component list, max 5. */
     public List<String> dock() {

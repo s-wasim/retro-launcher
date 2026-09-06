@@ -57,6 +57,7 @@
          needs no uses-permission — see the LockAdminReceiver declaration
          below (DESIGN_NOTES §9 delta 19). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- The weather fetch already sends exact coordinates; with only COARSE
          the platform hands us a fix rounded to roughly a city block, and the
@@ -165,6 +166,14 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/shade_service" />
         </service>
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     </application>
 

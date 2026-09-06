@@ -2,7 +2,7 @@ package com.retro.launcher.data;
 
 import android.util.Log;
 
-import com.retro.launcher.core.Weather;
+import com.retro.launcher.core.WeatherFetch;
 import com.retro.launcher.core.WeatherParser;
 
 import java.io.ByteArrayOutputStream;
@@ -10,12 +10,15 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.Locale;
 
 import javax.net.ssl.HttpsURLConnection;
 
 /**
- * One HTTPS GET to api.open-meteo.com — no key, no account, no SDK.
+ * One HTTPS GET to api.open-meteo.com — no key, no account, no SDK. Also
+ * requests today's and tomorrow's sunrise/sunset on the same GET, since
+ * {@link SolarClock}'s night warp needs tomorrow's sunrise.
  *
  * Deliberately minimal: one attempt, short timeouts, a bounded read, and null
  * for every failure. {@link WeatherRepository} owns the decision of *when* to
@@ -28,17 +31,19 @@ public final class OpenMeteoWeather implements WeatherSource {
 
     private static final int TIMEOUT_MS = 5_000;
 
-    /** The real body is ~250 bytes. Anything wildly larger is not our JSON,
-     *  and reading it unbounded would be a memory hazard on a hostile network. */
+    /** The real body is a few hundred bytes even with the daily block.
+     *  Anything wildly larger is not our JSON, and reading it unbounded
+     *  would be a memory hazard on a hostile network. */
     private static final int MAX_BODY_BYTES = 64 * 1024;
 
-    @Override public Weather fetch(double latitude, double longitude) {
+    @Override public WeatherFetch fetch(double latitude, double longitude) {
         HttpsURLConnection conn = null;
         try {
             URL url = new URL(ENDPOINT
                     + "?latitude=" + coord(latitude)
                     + "&longitude=" + coord(longitude)
-                    + "&current_weather=true");
+                    + "&current_weather=true"
+                    + "&daily=sunrise,sunset&timezone=auto&forecast_days=2");
 
             conn = (HttpsURLConnection) url.openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
@@ -52,7 +57,15 @@ public final class OpenMeteoWeather implements WeatherSource {
                 Log.d(TAG, "open-meteo returned HTTP " + code);
                 return null;
             }
-            return WeatherParser.parse(read(conn.getInputStream()));
+            String body = read(conn.getInputStream());
+            com.retro.launcher.core.Weather weather = WeatherParser.parse(body);
+            if (weather == null) return null;
+
+            // The solar block is a bonus: its absence or malformation is not
+            // a fetch failure, only a missing WeatherFetch.solarTimes.
+            com.retro.launcher.core.SolarTimes solarTimes =
+                    WeatherParser.parseSolarTimes(body, LocalDate.now());
+            return new WeatherFetch(weather, solarTimes);
 
         } catch (Exception e) {
             // IOException, SSL failures, a malformed URL, a SecurityException

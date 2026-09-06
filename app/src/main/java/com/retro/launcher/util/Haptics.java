@@ -6,7 +6,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 
-import com.retro.launcher.core.HapticCurve;
+import com.retro.launcher.core.Detents;
 
 /**
  * Every vibration the launcher makes.
@@ -15,9 +15,14 @@ import com.retro.launcher.core.HapticCurve;
  * than at construction, so a single {@code setEnabled(false)} silences the
  * whole app the instant the toggle moves, including a drag already in flight.
  *
- * <p>Taps are one-shots. A drag is a repeating waveform whose amplitude is
- * re-commanded only when {@link HapticCurve}'s bucket changes — see that
- * class for why that matters at 60fps.
+ * <p>Taps are one-shots. A drag used to be a repeating waveform re-commanded
+ * as its amplitude bucket changed — up to 40ms of continuous motor time per
+ * commit, held open for the whole drag. That is what tripped the platform's
+ * per-app vibration cutoff on a slow panel expansion (V8 design spec item
+ * 2). A drag is now a sequence of short, non-repeating "detent" pulses, one
+ * per {@link Detents} threshold crossed, in either direction, capped at
+ * {@link #MAX_TICKS_PER_GESTURE} per gesture so an oscillating drag cannot
+ * re-drive the motor indefinitely.
  *
  * <p>Every failure is silence. A device with no vibrator, a vibrator the
  * system has muted, an amplitude the motor cannot express: none of them are
@@ -25,15 +30,18 @@ import com.retro.launcher.core.HapticCurve;
  */
 public final class Haptics {
 
-    /** One pulse of the repeating drag waveform. Short enough that the swell
-     *  tracks the finger, long enough that the motor actually spins up. */
-    private static final long DRAG_PULSE_MS = 40L;
+    /** A single expansion costs 5 ticks; six deliberate up-down sweeps still
+     *  feel right at 10 ticks each. Only pathological jitter reaches this. */
+    private static final int MAX_TICKS_PER_GESTURE = 12;
 
     private final Vibrator vibrator;
     private boolean enabled;
 
-    /** -1 while no drag is running. */
-    private int dragBucket = -1;
+    private final Detents detents = new Detents();
+    /** -1 while no drag is running — matches {@code Detents}'s own "nothing
+     *  entered yet" state so the first frame of a drag always ticks. */
+    private int dragLevel = -1;
+    private int ticksThisGesture;
 
     public Haptics(Context context, boolean enabled) {
         this.enabled = enabled;
@@ -87,29 +95,37 @@ public final class Haptics {
         }
     }
 
-    /** Begin the repeating drag buzz at the floor amplitude. */
+    /** Resets detent state for a new drag. Commands nothing. */
     public void dragStart() {
-        if (unavailable()) return;
-        dragBucket = -1;
-        applyDragBucket(0);
+        dragLevel = -1;
+        ticksThisGesture = 0;
     }
 
     /**
-     * Re-command the motor only if the bucket moved. Safe and cheap to call
-     * from every frame of a drag — that is what it is for.
+     * Re-derives the detent level from {@code progress} and fires one
+     * {@link #detentTick()} if it moved — in either direction, so pulling a
+     * panel back down ticks as it re-crosses a threshold same as opening it.
+     * Safe and cheap to call from every frame of a drag — that is what it is
+     * for.
      *
      * @param progress 0 at rest, 1 at the snap threshold
      */
     public void dragProgress(float progress) {
         if (unavailable()) return;
-        int bucket = HapticCurve.bucket(progress);
-        if (bucket == dragBucket) return;
-        applyDragBucket(bucket);
+        int level = detents.next(progress);
+        if (level == dragLevel) return;
+        dragLevel = level;
+        if (ticksThisGesture >= MAX_TICKS_PER_GESTURE) return;
+        ticksThisGesture++;
+        detentTick();
     }
 
-    /** Stop the drag buzz. Idempotent, and safe when no drag is running. */
+    /** Ends the drag. Idempotent, and safe when no drag is running. Retains
+     *  {@code vibrator.cancel()} for safety even though a detent tick is a
+     *  one-shot with nothing left running to cancel. */
     public void dragEnd() {
-        dragBucket = -1;
+        dragLevel = -1;
+        ticksThisGesture = 0;
         if (vibrator == null) return;
         try {
             vibrator.cancel();
@@ -117,36 +133,15 @@ public final class Haptics {
         }
     }
 
-    private void applyDragBucket(int bucket) {
-        dragBucket = bucket;
-        int amplitude = HapticCurve.amplitudeForBucket(bucket);
+    /** One short pulse marking a detent crossing. Never a repeating waveform. */
+    private void detentTick() {
         try {
-            VibrationEffect effect;
-            if (hasAmplitudeControl()) {
-                // A pulse then a gap, repeating from index 0, so the buzz
-                // holds for as long as the finger is down.
-                effect = VibrationEffect.createWaveform(
-                        new long[]{0L, DRAG_PULSE_MS},
-                        new int[]{0, amplitude},
-                        /* repeat from */ 0);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK));
             } else {
-                // No amplitude control: a fixed duty cycle instead, so the
-                // drag still buzzes — it just does not swell.
-                effect = VibrationEffect.createWaveform(
-                        new long[]{0L, DRAG_PULSE_MS, DRAG_PULSE_MS},
-                        /* repeat from */ 0);
+                vibrator.vibrate(VibrationEffect.createOneShot(10L, 80));
             }
-            vibrator.cancel();
-            vibrator.vibrate(effect);
         } catch (RuntimeException ignored) {
-        }
-    }
-
-    private boolean hasAmplitudeControl() {
-        try {
-            return vibrator.hasAmplitudeControl();
-        } catch (RuntimeException ignored) {
-            return false;
         }
     }
 }
