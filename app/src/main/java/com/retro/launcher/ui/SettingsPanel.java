@@ -58,7 +58,6 @@ public final class SettingsPanel extends FrameLayout {
         void onSetDefaultLauncher();
         void onEnableNotificationShade();
         void onEnableShizukuLock();
-        void onEnableOverlay();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -93,7 +92,6 @@ public final class SettingsPanel extends FrameLayout {
     private boolean shadeServiceEnabled;
     private boolean shizukuLockEnabled;
     private boolean shizukuLockPermitted;
-    private boolean overlayGranted;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -225,8 +223,8 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPermissionsSection();
     }
 
-    /** DESIGN_NOTES §9 deltas 19 and 25: which route long-press-home-to-lock
-     *  has, which is also how the row tells "ON" from "PIN ONLY". */
+    /** DESIGN_NOTES §9 deltas 19 and 25: which route double-tap-home-to-lock
+     *  has (V9 §8 moved it off the long press). */
     public void setDeviceLockStatus(LockRoute route) {
         this.lockRoute = route;
         rebuildPermissionsSection();
@@ -251,11 +249,6 @@ public final class SettingsPanel extends FrameLayout {
     public void setShizukuLockStatus(boolean enabled, boolean permitted) {
         this.shizukuLockEnabled = enabled;
         this.shizukuLockPermitted = permitted;
-        rebuildPermissionsSection();
-    }
-
-    public void setOverlayStatus(boolean granted) {
-        this.overlayGranted = granted;
         rebuildPermissionsSection();
     }
 
@@ -689,10 +682,9 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(usageRow, gap);
         permSection.addView(usageRow);
 
-        // Three states, not two. "PIN ONLY" is the device-admin route: it does
-        // lock, but Android refuses the fingerprint on the next unlock, so it
-        // draws in the attention colour and stays tappable — same as ENABLE —
-        // rather than reading as done.
+        // Two states since V9 §10 retired the device admin and with it the
+        // "PIN ONLY" middle state: both surviving routes leave the fingerprint
+        // working, so a route that locks at all is a route that is done.
         View lockRow = permissionRow("DEVICE LOCK", lockRoute.settled(),
                 lockRoute.status(), lockRoute.status(),
                 () -> { if (permissionListener != null) permissionListener.onEnableDeviceLock(); });
@@ -703,11 +695,6 @@ public final class SettingsPanel extends FrameLayout {
                 () -> { if (permissionListener != null) permissionListener.onEnableNotificationShade(); });
         addTopMargin(shadeRow, gap);
         permSection.addView(shadeRow);
-
-        View overlayRow = permissionRow("DRAW OVER APPS", overlayGranted, "ON", "ENABLE",
-                () -> { if (permissionListener != null) permissionListener.onEnableOverlay(); });
-        addTopMargin(overlayRow, gap);
-        permSection.addView(overlayRow);
 
         // Three states again, same shape as DEVICE LOCK: off (never opted
         // in), on-but-not-permitted (opted in, needs (re-)pairing — the
@@ -730,20 +717,15 @@ public final class SettingsPanel extends FrameLayout {
         TextView caption = new TextView(getContext());
         caption.setText("WEATHER NEEDS PRECISE LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
                 + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
-                + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
+                + "DOUBLE-TAP THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
                 + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "
                 + "RETRO LAUNCHER UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY LOCKS THE "
                 + "SCREEN AND OPENS THE SHADE.\n\n"
-                + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
-                + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
-                + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
                 + "SHIZUKU LOCK IS AN OPTIONAL ALTERNATIVE TO ACCESSIBILITY THAT SOME "
                 + "BANKING APPS DO NOT FLAG. IT NEEDS A SEPARATE SHIZUKU APP PAIRED OVER "
                 + "WIRELESS DEBUGGING, AND THAT PAIRING MUST BE REDONE AFTER EVERY REBOOT "
                 + "UNLESS YOUR DEVICE IS ROOTED. GRANT MEANS THE TOGGLE IS ON BUT THE "
                 + "PAIRING HAS LAPSED.\n\n"
-                + "DRAW OVER APPS LETS THE LAUNCHER STAY ON SCREEN INSTANTLY WHEN YOU PRESS "
-                + "HOME, INSTEAD OF WAITING FOR ANDROID TO REOPEN IT FROM RECENTS.\n\n"
                 + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);

@@ -1,5 +1,7 @@
 package com.retro.launcher.data;
 
+import com.retro.launcher.core.DrawerSections;
+
 import java.util.List;
 
 /**
@@ -47,11 +49,10 @@ public final class AppEntry {
         return packageName + "/" + activityName;
     }
 
+    /** The drawer section header this row sits under — see
+     *  {@link DrawerSections#sectionFor(String)}, which is where the rule
+     *  lives so it can be unit-tested. */
     public char firstLetter() {
-        for (int i = 0; i < label.length(); i++) {
-            char c = Character.toUpperCase(label.charAt(i));
-            if (c >= 'A' && c <= 'Z') return c;
-        }
-        return '#';
+        return DrawerSections.sectionFor(label);
     }
 }

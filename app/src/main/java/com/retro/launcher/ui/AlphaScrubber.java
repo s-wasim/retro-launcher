@@ -7,6 +7,7 @@ import android.graphics.Typeface;
 import android.view.MotionEvent;
 import android.view.View;
 
+import com.retro.launcher.core.DrawerSections;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.util.Haptics;
@@ -15,9 +16,16 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Fixed 7cqw right rail: all 26 letters, present ones at full opacity, absent
- * ones dimmed. Press-and-drag jumps the drawer list to that letter's header.
- * See DESIGN_NOTES §7b.
+ * Fixed 7cqw right rail: {@code #} followed by all 26 letters, present ones at
+ * full opacity, absent ones dimmed. Press-and-drag jumps the drawer list to
+ * that section's header. See DESIGN_NOTES §7b.
+ *
+ * <p>The {@code #} row is V9 §9: every label that does not begin with a Latin
+ * letter now files under {@link DrawerSections#OTHER} instead of being
+ * scattered into whichever letter happened to appear first inside it, and
+ * without a rail row of its own that group would be the one section the
+ * scrubber could not reach. It leads the rail because it leads the list —
+ * digits and symbols sort above letters.
  *
  * Measures shorter than the row it sits in ({@link #LENGTH_FRACTION}) and is
  * centered vertically ({@code DrawerPanel}'s scrubber LayoutParams) rather
@@ -39,6 +47,18 @@ public final class AlphaScrubber extends View {
      *  leaves clearance top and bottom so the end letters clear a circular
      *  display's curvature, and stays centered via the parent LayoutParams. */
     private static final float LENGTH_FRACTION = 0.86f;
+
+    /** The rail, top to bottom: the {@code #} group, then A-Z. Kept as one
+     *  array so the draw loop and the touch mapping cannot disagree about
+     *  which band is which. */
+    private static final char[] ROWS = buildRows();
+
+    private static char[] buildRows() {
+        char[] rows = new char[27];
+        rows[0] = DrawerSections.OTHER;
+        for (int i = 0; i < 26; i++) rows[i + 1] = (char) ('A' + i);
+        return rows;
+    }
 
     public interface OnLetterListener { void onLetter(char letter); }
 
@@ -71,10 +91,10 @@ public final class AlphaScrubber extends View {
         canvas.drawColor(palette.veil());
 
         int h = getHeight(), w = getWidth();
-        float rowHeight = h / 26f;
+        float rowHeight = h / (float) ROWS.length;
         paint.setTextSize(Math.min(w * 0.7f, rowHeight * 0.8f));
-        for (int i = 0; i < 26; i++) {
-            char letter = (char) ('A' + i);
+        for (int i = 0; i < ROWS.length; i++) {
+            char letter = ROWS[i];
             paint.setColor(present.contains(letter) ? withAlpha(palette.ink, 242) : withAlpha(palette.ink, 64));
             float y = rowHeight * i + rowHeight / 2f - (paint.descent() + paint.ascent()) / 2f;
             canvas.drawText(String.valueOf(letter), w / 2f, y, paint);
@@ -109,9 +129,9 @@ public final class AlphaScrubber extends View {
 
     private void fireLetterAt(float y) {
         if (listener == null || getHeight() == 0) return;
-        int index = (int) (y / (getHeight() / 26f));
-        index = Math.max(0, Math.min(25, index));
-        char letter = (char) ('A' + index);
+        int index = (int) (y / (getHeight() / (float) ROWS.length));
+        index = Math.max(0, Math.min(ROWS.length - 1, index));
+        char letter = ROWS[index];
         if (letter == lastLetter) return;
         lastLetter = letter;
         tick();

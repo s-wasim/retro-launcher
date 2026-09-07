@@ -17,7 +17,7 @@ android {
         // of what the run number happens to be. A local build gets exactly
         // 1000, which is fine — local builds are not what gets updated over.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger() + 1000
-        versionName "1.0.0"
+        versionName "2.1.0"
         vectorDrawables.useSupportLibrary false
     }
 
