@@ -8,11 +8,8 @@ pinned in two places that must move together: `gradle-version` in
 
 ## 1. Trigger
 
-Once the design pass is committed (tokens extracted into
-`design/DESIGN_NOTES.md`, then applied to `colors.xml`, `styles.xml`, and
-the two layouts), pushing that commit to `main` fires
-`.github/workflows/build.yml` automatically. It can also be run manually
-with `gh workflow run build.yml`.
+A push to any branch fires `.github/workflows/build.yml` automatically. It
+can also be run manually with `gh workflow run build.yml`.
 
 ## 2. What CI does
 
@@ -25,9 +22,9 @@ with `gh workflow run build.yml`.
    - `minifyEnabled true` + `shrinkResources true` + R8 full mode strip
      unused code/resources on this build type (debug is intentionally
      shrunk too, since it's the one that gets sideloaded).
-   - `dependencies {}` in `app/build.gradle` is empty and
-     `android.useAndroidX=false` is set, so the build fails loudly if
-     anything accidentally pulls in AndroidX/Kotlin stdlib/Compose.
+   - `app/build.gradle` declares exactly three dependencies — Shizuku's
+     `api` and `provider`, plus the `androidx.annotation` they require. Any
+     fourth is a change to HANDOFF.md §1, not a routine addition.
 4. Prints the resulting APK's size with `ls -lh`, so every run's log states
    the number against budget (debug < 150 KB, release < 80 KB).
 5. Publishes `app-debug.apk` as a **GitHub release asset** (via `gh

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Owns the one weather reading the launcher shows, and decides when it is
  * worth going to the network for a new one.
  *
- * <h3>Refresh policy (spec §3.6)</h3>
+ * <h3>Refresh policy</h3>
  * A reading is good for 30 minutes. Below that nothing is fetched. A forced
  * refresh — tapping the weather line, granting location — bypasses the 30
  * minutes but not the 10-minute floor, so no sequence of taps can turn this

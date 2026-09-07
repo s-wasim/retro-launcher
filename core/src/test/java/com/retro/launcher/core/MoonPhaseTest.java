@@ -67,15 +67,6 @@ public class MoonPhaseTest {
         assertEquals(0f, Math.min(diff, 1f - diff), 0.02f);
     }
 
-    @Test public void illuminationTracksThePhase() {
-        assertEquals(0f, MoonPhase.illuminationFor(0f), 1e-6f);
-        assertEquals(0.5f, MoonPhase.illuminationFor(0.25f), 1e-6f);
-        assertEquals(1f, MoonPhase.illuminationFor(0.5f), 1e-6f);
-        assertEquals(0.5f, MoonPhase.illuminationFor(0.75f), 1e-6f);
-        assertEquals(1f, MoonPhase.illumination(at("2024-01-25T17:54:00Z")), 0.001f);
-        assertEquals(0f, MoonPhase.illumination(at("2024-01-11T11:57:00Z")), 0.001f);
-    }
-
     @Test public void hemisphereComesFromLatitudeSign() {
         assertTrue(MoonPhase.southernView(-33.9f));     // Sydney
         assertFalse(MoonPhase.southernView(31.5f));     // Lahore

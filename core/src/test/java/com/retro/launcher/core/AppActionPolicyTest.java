@@ -168,7 +168,5 @@ public class AppActionPolicyTest {
     @Test public void theShortOverloadStillMeansNotAClone() {
         assertEquals(AppActionPolicy.actionsFor(false, false, false, false),
                 AppActionPolicy.actionsFor(false, false, false));
-        assertEquals(AppActionPolicy.labelsFor(true, false, false, false),
-                AppActionPolicy.labelsFor(true, false, false));
     }
 }

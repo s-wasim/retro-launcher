@@ -4,12 +4,12 @@
   that earns them rather than switched off across the project.
 
   GestureBackNavigation tells you to move onBackPressed to AndroidX's
-  OnBackPressedDispatcher. This project has no AndroidX dependency and
-  intends not to acquire one (app/build.gradle's dependencies block is empty
-  and android.useAndroidX=false, so the build fails loudly if anything pulls
-  it in). The platform equivalent is already in place: HomeActivity
-  registers an OnBackInvokedCallback on API 33+, and the onBackPressed
-  override lint is pointing at is the pre-33 path it deliberately keeps.
+  OnBackPressedDispatcher. The only AndroidX artifact this project depends on
+  is androidx.annotation, pulled in for Shizuku (HANDOFF.md §0 row 11), and
+  androidx.activity is not going to be added for this. The platform
+  equivalent is already in place: HomeActivity registers an
+  OnBackInvokedCallback on API 33+, and the onBackPressed override lint is
+  pointing at is the pre-33 path it deliberately keeps.
 
   WrongConstant fires on getSystemService("statusbar"). There is no public
   constant for it — that is the whole point of the call, a reflective route

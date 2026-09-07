@@ -35,7 +35,7 @@ import java.util.Calendar;
  * correctly-composited panel: the "ghost panel" artifact. A TextureView
  * composites as a normal GPU texture inside the same RenderThread pipeline
  * as every other view, so there is only one compositor and no desync is
- * possible. See docs/superpowers/specs/2026-08-31-panel-fixes-and-launcher-controls-design.md §1.
+ * possible. See DESIGN_NOTES §9 delta 17.
  */
 public final class SkyView extends TextureView implements TextureView.SurfaceTextureListener {
 

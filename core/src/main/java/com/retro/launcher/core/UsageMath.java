@@ -159,12 +159,6 @@ public final class UsageMath {
         }
         return out;
     }
-
-    public static int snapLimit(int minutes) {
-        int clamped = Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, minutes));
-        return Math.round(clamped / (float) LIMIT_STEP) * LIMIT_STEP;
-    }
-
     public static boolean isOverLimit(long todayMillis, int limitMinutes) {
         return todayMillis > limitMinutes * 60_000L;
     }

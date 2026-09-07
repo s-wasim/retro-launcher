@@ -2,8 +2,7 @@ package com.retro.launcher.core;
 
 /**
  * Pure body-position math for the sky wallpaper. No Android type; fully
- * unit-testable. Nothing else may compute a sun or moon screen position —
- * see V9 spec §1.
+ * unit-testable. Nothing else may compute a sun or moon screen position.
  */
 public final class BodyPath {
 

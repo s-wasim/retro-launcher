@@ -421,7 +421,7 @@ public class HomeActivity extends Activity {
 
         // The sky always gets a value — a synthetic one when we have no
         // reading — but the widget must not present invented weather as a
-        // measurement, so it gets null and renders "--°" instead (spec §3.6).
+        // measurement, so it gets null and renders "--°" instead.
         // The manual override (V9 §7b) short-circuits both: its reading is
         // deliberate, so the widget shows it rather than "--°".
         boolean manual = prefs.manualWallpaper();

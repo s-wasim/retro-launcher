@@ -20,7 +20,6 @@ import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
 import com.retro.launcher.icons.IconSource;
-import com.retro.launcher.theme.Tint;
 import com.retro.launcher.util.Haptics;
 import com.retro.launcher.util.Launch;
 

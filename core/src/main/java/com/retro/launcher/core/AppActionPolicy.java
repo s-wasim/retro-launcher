@@ -1,7 +1,6 @@
 package com.retro.launcher.core;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -108,18 +107,5 @@ public final class AppActionPolicy {
         }
         out.add(Action.APP_INFO);
         return out;
-    }
-
-    /** The labels for {@link #actionsFor}, in the same order. */
-    public static List<String> labelsFor(boolean system, boolean updatedSystem, boolean self) {
-        return labelsFor(system, updatedSystem, self, false);
-    }
-
-    /** The labels for {@link #actionsFor(boolean, boolean, boolean, boolean)}. */
-    public static List<String> labelsFor(boolean system, boolean updatedSystem,
-                                         boolean self, boolean clone) {
-        List<String> out = new ArrayList<>(4);
-        for (Action a : actionsFor(system, updatedSystem, self, clone)) out.add(a.label());
-        return Collections.unmodifiableList(out);
     }
 }

@@ -7,8 +7,7 @@ package com.retro.launcher.core;
  * NEWS/PRODUCTIVITY fold into WORK; MAPS and UNDEFINED fall back to UTILITY.
  *
  * The constants mirror {@code android.content.pm.ApplicationInfo}'s category
- * ints so this stays testable on a bare JDK — see the class layout in the
- * design spec §2.3.
+ * ints so this stays testable on a bare JDK.
  */
 public final class CategoryMap {
 

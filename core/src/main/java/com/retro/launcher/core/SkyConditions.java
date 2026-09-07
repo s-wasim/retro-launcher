@@ -5,7 +5,7 @@ package com.retro.launcher.core;
  * one immutable struct so the method signature does not have to carry nine
  * loose scalars. {@code hour} is the {@link SolarClock}-warped hour driving
  * sky colour and the sun's position; {@code realHour} is the unwarped local
- * hour driving the moon's position on its own clock (V9 spec §3).
+ * hour driving the moon's position on its own clock.
  */
 public final class SkyConditions {
 

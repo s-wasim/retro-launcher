@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher's own colours all come from Palette at runtime, so the only
+  colours that need to exist as resources are the two the adaptive launcher
+  icon references — a vector drawable cannot read a Palette.
+-->
 <resources>
-    <!-- Placeholder tokens. Will be overwritten once design/DESIGN_NOTES.md
-         has been extracted from the prototype. -->
-    <color name="background">#000000</color>
     <color name="text_primary">#FFFFFF</color>
     <color name="icon_background">#111111</color>
 </resources>

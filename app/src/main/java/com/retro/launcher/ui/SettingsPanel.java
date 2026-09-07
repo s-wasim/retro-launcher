@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 /**
  * Tier 3 — the fourth panel. Four DESIGN_NOTES §7c sections (PALETTE,
  * CLOCK &amp; DATE, TEMPERATURE, DOCK) plus a native-only PERMISSIONS block
- * (spec §5) with live status and a fix button, so a skipped first-run setup
+ * with live status and a fix button, so a skipped first-run setup
  * is recoverable without a reinstall. Every control writes straight through
  * {@link Prefs} and calls {@code onPrefsChanged} so the caller can refresh
  * whatever else depends on it (palette, clock, dock).
@@ -243,8 +243,8 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPermissionsSection();
     }
 
-    /** V8 design spec item 5: whether the SHIZUKU LOCK toggle is on, and
-     *  whether a permitted session is currently reachable — two different
+    /** Whether the SHIZUKU LOCK toggle is on, and whether a permitted
+     *  session is currently reachable — two different
      *  things, since the toggle survives a reboot but the pairing does not. */
     public void setShizukuLockStatus(boolean enabled, boolean permitted) {
         this.shizukuLockEnabled = enabled;

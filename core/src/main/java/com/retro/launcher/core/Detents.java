@@ -5,8 +5,8 @@ package com.retro.launcher.core;
  *
  * <p>Replaces {@code HapticCurve}. That class drove a continuously repeating
  * vibration waveform for the whole length of a drag, which is what tripped
- * the platform's per-app vibration cutoff on a slow expansion — see the V8
- * design spec item 2. This class only ever says which threshold band the
+ * the platform's per-app vibration cutoff on a slow expansion. This class
+ * only ever says which threshold band the
  * drag is currently in; {@code Haptics} turns each *change* of band into one
  * short, non-repeating pulse.
  *

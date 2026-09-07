@@ -1,7 +1,6 @@
 package com.retro.launcher.ui;
 
 import android.content.Context;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
 import com.retro.launcher.core.Metrics;

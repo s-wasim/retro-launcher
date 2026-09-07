@@ -28,21 +28,6 @@ public final class Insets {
     }
 
     /**
-     * The top system-bar inset in pixels — the status bar's height. Used to
-     * tell a swipe meant for the notification shade apart from one meant for
-     * panel navigation; see {@code LauncherRoot#lockAxis}.
-     */
-    public static int systemTop(View v) {
-        WindowInsets wi = v.getRootWindowInsets();
-        if (wi == null) return 0;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return wi.getInsets(WindowInsets.Type.systemBars()).top;
-        }
-        //noinspection deprecation
-        return wi.getSystemWindowInsetTop();
-    }
-
-    /**
      * Keeps a scrolling list clear of the navigation bar or the gesture pill.
      *
      * The panels each pad their header down by the status-bar inset, which is

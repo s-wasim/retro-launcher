@@ -5,3 +5,8 @@ local.properties
 *.iml
 .idea/
 .DS_Store
+
+# Agent/dev-tooling scratch — never part of the app
+.claude/
+.superpowers/
+.remember/

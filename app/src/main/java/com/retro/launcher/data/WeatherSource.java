@@ -4,8 +4,8 @@ import com.retro.launcher.core.WeatherFetch;
 
 /**
  * Where a real weather reading — and the day's solar times, riding along on
- * the same request — comes from. The seam spec §3.6 reserved at Tier 1 so
- * the network implementation could land without touching a caller.
+ * the same request — comes from. The seam was reserved at Tier 1 so the
+ * network implementation could land without touching a caller.
  */
 public interface WeatherSource {
 

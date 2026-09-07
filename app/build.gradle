@@ -17,7 +17,7 @@ android {
         // of what the run number happens to be. A local build gets exactly
         // 1000, which is fine — local builds are not what gets updated over.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger() + 1000
-        versionName "2.1.0"
+        versionName "2.1.1"
         vectorDrawables.useSupportLibrary false
     }
 
@@ -72,9 +72,9 @@ android {
 dependencies {
     implementation project(':core')
 
-    // The project's first external dependency. Contained entirely to
-    // ShizukuLock.java, the one file in the app that imports Shizuku types —
-    // see the V8 design spec item 5.
+    // The project's first external dependency, added in V8. Contained
+    // entirely to ShizukuLock.java, the one file in the app that imports
+    // a Shizuku type.
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
 
