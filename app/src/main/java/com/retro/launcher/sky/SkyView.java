@@ -9,9 +9,11 @@ import android.graphics.SurfaceTexture;
 import android.view.TextureView;
 
 import com.retro.launcher.core.MoonPhase;
+import com.retro.launcher.core.SkyConditions;
 import com.retro.launcher.core.SkyRenderer;
 import com.retro.launcher.core.SolarClock;
 import com.retro.launcher.core.SolarTimes;
+import com.retro.launcher.core.Weather;
 
 import java.util.Calendar;
 
@@ -33,7 +35,7 @@ import java.util.Calendar;
  * correctly-composited panel: the "ghost panel" artifact. A TextureView
  * composites as a normal GPU texture inside the same RenderThread pipeline
  * as every other view, so there is only one compositor and no desync is
- * possible. See docs/superpowers/specs/2026-08-31-panel-fixes-and-launcher-controls-design.md §1.
+ * possible. See DESIGN_NOTES §9 delta 17.
  */
 public final class SkyView extends TextureView implements TextureView.SurfaceTextureListener {
 
@@ -52,7 +54,10 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
     private volatile boolean running;
     private Thread renderThread;
 
-    private volatile float weather;
+    private volatile Weather weather;
+    private volatile boolean manualOverrideEnabled;
+    private volatile float manualHour;
+    private volatile float manualMoonPhase;
     private volatile int[] tintRamp;
     private volatile float desaturation;
     private volatile float latitude = Float.NaN;   // no fix yet
@@ -67,7 +72,18 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         setSurfaceTextureListener(this);
     }
 
-    public void setWeather(float w) { this.weather = w; }
+    public void setWeather(Weather w) { this.weather = w; }
+
+    /** V9 §7b: when enabled, {@code hour} is fed directly as the sky's
+     *  already-"warped" hour (bypassing {@link SolarClock#warp} so the full
+     *  0-24 keyframe range is directly scrubbable) and the moon is always
+     *  visible across the whole knob range rather than gated by a real
+     *  moonrise/moonset window. */
+    public void setManualOverride(boolean enabled, float hour, float moonPhase) {
+        this.manualOverrideEnabled = enabled;
+        this.manualHour = hour;
+        this.manualMoonPhase = moonPhase;
+    }
 
     public void setTint(int[] rampArgb) { this.tintRamp = rampArgb; }
 
@@ -154,22 +170,35 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
     private void drawFrame() {
         SkyRenderer r = renderer;
         Bitmap bmp = bitmap;
-        if (r == null || bmp == null) return;
+        Weather w = weather;
+        if (r == null || bmp == null || w == null) return;
 
         r.setTint(tintRamp);
         r.setDesaturation(desaturation);
         r.setSouthernView(MoonPhase.southernView(latitude));
 
         float realHour = decimalHour();
-        SolarTimes times = solarTimes;
-        float hour = times == null
-                ? realHour
-                : SolarClock.warp(realHour, times.sunriseHour, times.sunsetHour, times.tomorrowSunriseHour);
+        float hour, moonriseHour, moonsetHour, moonPhase;
+        if (manualOverrideEnabled) {
+            hour = manualHour;
+            realHour = manualHour;
+            moonriseHour = 0f;
+            moonsetHour = 24f;
+            moonPhase = manualMoonPhase;
+        } else {
+            SolarTimes times = solarTimes;
+            hour = times == null
+                    ? realHour
+                    : SolarClock.warp(realHour, times.sunriseHour, times.sunsetHour, times.tomorrowSunriseHour);
+            moonriseHour = times == null ? Float.NaN : times.moonriseHour;
+            moonsetHour = times == null ? Float.NaN : times.moonsetHour;
+            moonPhase = MoonPhase.phase(System.currentTimeMillis());
+        }
+
         float seconds = (System.nanoTime() - startNanos) / 1_000_000_000f;
-        // Seven sines a frame against a 108xN pixel loop — not worth caching,
-        // and recomputing means the terminator creeps in real time.
-        float moonPhase = MoonPhase.phase(System.currentTimeMillis());
-        r.render(buf, hour, weather, moonPhase, seconds);
+        SkyConditions c = new SkyConditions(hour, realHour, moonriseHour, moonsetHour,
+                w.cloudCover, w.precip, moonPhase, w.type, w.thunder, w.tempC);
+        r.render(buf, c, seconds);
         bmp.setPixels(buf, 0, BUF_W, 0, 0, BUF_W, bufH);
 
         Canvas canvas = null;

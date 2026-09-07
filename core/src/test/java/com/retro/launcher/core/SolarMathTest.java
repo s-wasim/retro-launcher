@@ -7,7 +7,7 @@ import static org.junit.Assert.*;
 
 public class SolarMathTest {
 
-    /** Two minutes, in decimal hours — the precision the spec claims. */
+    /** Two minutes, in decimal hours — the precision SolarMath aims for. */
     private static final float TOL_HOURS = 2f / 60f;
 
     @Test public void newYorkSummerSolstice() {

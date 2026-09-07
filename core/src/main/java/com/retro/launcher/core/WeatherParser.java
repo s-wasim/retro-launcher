@@ -7,27 +7,32 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Turns Open-Meteo's {@code current_weather} reply into a {@link Weather}.
+ * Turns Open-Meteo's modern {@code current=} reply into a {@link Weather}.
  *
  * <h3>Why this parses JSON by hand</h3>
- * The design spec calls for {@code android.util.JsonReader} here. That cannot
- * hold: this class lives in {@code :core}, and {@code :core} having no Android
- * dependency is exactly what lets it be unit-tested on the JVM. Adding a JSON
- * library for two numbers is worse. So the reader below is deliberately small
- * and deliberately narrow — it finds one named object and two named numbers
- * inside it, and refuses everything else.
+ * This class lives in {@code :core}, and {@code :core} having no Android
+ * dependency is exactly what lets it be unit-tested on the JVM. The reader
+ * below is deliberately small and deliberately narrow — it finds one named
+ * object and a handful of named numbers inside it, and refuses everything
+ * else.
  *
  * <h3>Failure is normal and silent</h3>
- * Per spec §3.6, every malformed shape — a truncated body, an HTML error page,
- * an API error object, a missing field, a field of the wrong type — returns
- * null, meaning "no update". The caller keeps its last good reading. This
- * class never throws.
+ * Every malformed shape — a truncated body, an HTML error page, an API error
+ * object, a missing required field, a field of the wrong type — returns
+ * null, meaning "no update". A missing *optional* channel (cloud cover,
+ * precipitation) instead falls back to the value implied by
+ * {@code weather_code}, reproducing pre-V9 behaviour for that one channel
+ * rather than failing the whole reading. This class never throws.
  */
 public final class WeatherParser {
 
     private WeatherParser() {}
 
-    private static final String OBJECT_KEY = "\"current_weather\"";
+    private static final String OBJECT_KEY = "\"current\"";
+
+    /** mm of the preceding hour that saturates the visual {@code precip}
+     *  intensity to 1.0 — 4mm/h is WMO's "heavy rain" threshold. */
+    private static final float PRECIP_SATURATION_MM = 4f;
 
     /**
      * @param json a full Open-Meteo response body, or null
@@ -40,15 +45,35 @@ public final class WeatherParser {
         String body = objectFor(json, OBJECT_KEY);
         if (body == null) return null;
 
-        Double temp = number(body, "\"temperature\"");
-        Double code = number(body, "\"weathercode\"");
+        Double temp = number(body, "\"temperature_2m\"");
+        Double code = number(body, "\"weather_code\"");
         if (temp == null || code == null) return null;
 
         Condition c = Condition.forWmoCode((int) Math.round(code));
         if (c == null) return null;
 
-        return new Weather((int) Math.round(temp),
-                SyntheticWeather.label(c.w, c.snow), c.w);
+        Double cloudPct = number(body, "\"cloud_cover\"");
+        Double precipMm = number(body, "\"precipitation\"");
+        Double precipProb = number(body, "\"precipitation_probability\"");
+
+        float cloudCover = cloudPct != null
+                ? SkyRenderer.clamp01(cloudPct.floatValue() / 100f)
+                : SkyRenderer.smooth(0.10f, 0.66f, c.w);
+        float precip = precipMm != null
+                ? SkyRenderer.clamp01(precipMm.floatValue() / PRECIP_SATURATION_MM)
+                : SkyRenderer.smooth(0.62f, 0.98f, c.w);
+        int precipProbability = precipProb != null ? Math.round(precipProb.floatValue()) : 0;
+
+        boolean thunder = c.thunder;
+        Precip type = precip > 0f ? (c.snow ? Precip.SNOW : Precip.RAIN) : Precip.NONE;
+
+        // The label comes from the WMO code's own canonical scalar, not the
+        // channel-derived w: reproducing today's per-code label exactly is
+        // the whole point of the WMO fallback (Global Constraints), and a
+        // round-trip through the fallback-synthesized cloudCover/precip is
+        // lossy enough at the low end to misalign label-band boundaries.
+        return new Weather((int) Math.round(temp), SyntheticWeather.label(c.w, c.snow),
+                cloudCover, precip, type, thunder, precipProbability);
     }
 
     private static final String DAILY_KEY = "\"daily\"";
@@ -81,11 +106,6 @@ public final class WeatherParser {
         return new SolarTimes(sunriseHour, sunsetHour, tomorrowSunriseHour, today);
     }
 
-    /**
-     * The quoted string elements of the JSON array at {@code key} within one
-     * object body, or null if the key is absent or its value is not an
-     * array of bare strings.
-     */
     private static List<String> stringArray(String body, String key) {
         int at = body.indexOf(key);
         if (at < 0) return null;
@@ -98,13 +118,13 @@ public final class WeatherParser {
 
         List<String> out = new ArrayList<>();
         i = skipSpace(body, i);
-        if (i < body.length() && body.charAt(i) == ']') return out; // empty array
+        if (i < body.length() && body.charAt(i) == ']') return out;
 
         while (i < body.length()) {
             if (body.charAt(i) != '"') return null;
             int start = ++i;
             while (i < body.length() && body.charAt(i) != '"') i++;
-            if (i >= body.length()) return null; // unterminated string
+            if (i >= body.length()) return null;
             out.add(body.substring(start, i));
             i = skipSpace(body, i + 1);
             if (i >= body.length()) return null;
@@ -112,11 +132,9 @@ public final class WeatherParser {
             if (body.charAt(i) == ']') return out;
             return null;
         }
-        return null; // never closed
+        return null;
     }
 
-    /** Open-Meteo's ISO local datetime, e.g. {@code "2026-08-28T06:12"}, as
-     *  a decimal hour — or null if it does not parse. */
     private static Float hourOfDay(String isoLocalDateTime) {
         try {
             LocalDateTime dt = LocalDateTime.parse(isoLocalDateTime);
@@ -126,14 +144,6 @@ public final class WeatherParser {
         }
     }
 
-    /**
-     * The text between the braces of the object at {@code key}, or null.
-     *
-     * The key is matched with its quotes attached, so {@code
-     * "current_weather_units"} cannot be mistaken for {@code
-     * "current_weather"} — reading that one would hand back "°C" as a
-     * temperature.
-     */
     private static String objectFor(String json, String key) {
         int at = json.indexOf(key);
         if (at < 0) return null;
@@ -154,13 +164,9 @@ public final class WeatherParser {
             if (ch == '{')        depth++;
             else if (ch == '}' && --depth == 0) return json.substring(i + 1, j);
         }
-        return null;   // never closed — a truncated body
+        return null;
     }
 
-    /**
-     * The numeric value at {@code key} within one object body, or null if the
-     * key is absent or its value is not a bare JSON number.
-     */
     private static Double number(String body, String key) {
         int at = body.indexOf(key);
         if (at < 0) return null;
@@ -171,7 +177,7 @@ public final class WeatherParser {
 
         int start = i;
         while (i < body.length() && isNumeric(body.charAt(i))) i++;
-        if (i == start) return null;   // a string, an object, null, true...
+        if (i == start) return null;
 
         try {
             return Double.valueOf(body.substring(start, i));
@@ -191,54 +197,58 @@ public final class WeatherParser {
     }
 
     /**
-     * One WMO 4677 present-weather code's effect on the sky.
-     *
-     * {@code w} is the same 0-1 scalar {@link SyntheticWeather} uses, so each
-     * value is chosen to land inside the band whose label matches the code's
-     * meaning — see {@link SyntheticWeather#label}.
+     * One WMO 4677 present-weather code's *implied* effect on the sky, used
+     * only as a per-channel fallback when Open-Meteo's own channel is
+     * missing from the response, and always for {@code thunder} (the API has
+     * no boolean field for it — codes 95/96/99 are the only source of truth).
      */
     private static final class Condition {
         final float w;
         final boolean snow;
+        final boolean thunder;
 
-        Condition(float w, boolean snow) { this.w = w; this.snow = snow; }
+        Condition(float w, boolean snow, boolean thunder) {
+            this.w = w;
+            this.snow = snow;
+            this.thunder = thunder;
+        }
 
         static Condition forWmoCode(int code) {
             switch (code) {
-                case 0:  return new Condition(0.02f, false);  // clear sky
-                case 1:  return new Condition(0.22f, false);  // mainly clear
-                case 2:  return new Condition(0.36f, false);  // partly cloudy
-                case 3:  return new Condition(0.58f, false);  // overcast
+                case 0:  return new Condition(0.02f, false, false);
+                case 1:  return new Condition(0.22f, false, false);
+                case 2:  return new Condition(0.36f, false, false);
+                case 3:  return new Condition(0.58f, false, false);
 
-                case 45: case 48:                             // fog, rime fog
-                    return new Condition(0.12f, false);
+                case 45: case 48:
+                    return new Condition(0.12f, false, false);
 
-                case 51: case 53:                             // drizzle
-                    return new Condition(0.70f, false);
+                case 51: case 53:
+                    return new Condition(0.70f, false, false);
                 case 55:
-                    return new Condition(0.82f, false);
-                case 56: case 57:                             // freezing drizzle
-                    return new Condition(0.70f, true);
+                    return new Condition(0.82f, false, false);
+                case 56: case 57:
+                    return new Condition(0.70f, true, false);
 
-                case 61: return new Condition(0.70f, false);  // slight rain
-                case 63: return new Condition(0.82f, false);  // moderate rain
-                case 65: return new Condition(0.91f, false);  // heavy rain
-                case 66: return new Condition(0.70f, true);   // freezing rain
-                case 67: return new Condition(0.82f, true);
+                case 61: return new Condition(0.70f, false, false);
+                case 63: return new Condition(0.82f, false, false);
+                case 65: return new Condition(0.91f, false, false);
+                case 66: return new Condition(0.70f, true, false);
+                case 67: return new Condition(0.82f, true, false);
 
-                case 71: return new Condition(0.70f, true);   // slight snow
-                case 73: return new Condition(0.82f, true);   // moderate snow
-                case 75: return new Condition(0.91f, true);   // heavy snow
-                case 77: return new Condition(0.70f, true);   // snow grains
+                case 71: return new Condition(0.70f, true, false);
+                case 73: return new Condition(0.82f, true, false);
+                case 75: return new Condition(0.91f, true, false);
+                case 77: return new Condition(0.70f, true, false);
 
-                case 80: return new Condition(0.70f, false);  // rain showers
-                case 81: return new Condition(0.82f, false);
-                case 82: return new Condition(0.91f, false);
-                case 85: return new Condition(0.70f, true);   // snow showers
-                case 86: return new Condition(0.91f, true);
+                case 80: return new Condition(0.70f, false, false);
+                case 81: return new Condition(0.82f, false, false);
+                case 82: return new Condition(0.91f, false, false);
+                case 85: return new Condition(0.70f, true, false);
+                case 86: return new Condition(0.91f, true, false);
 
-                case 95: case 96: case 99:                    // thunderstorm
-                    return new Condition(0.97f, false);
+                case 95: case 96: case 99:
+                    return new Condition(0.97f, false, true);
 
                 default: return null;
             }

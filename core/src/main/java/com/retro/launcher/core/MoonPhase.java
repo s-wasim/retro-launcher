@@ -25,8 +25,8 @@ public final class MoonPhase {
     private static final double UNIX_EPOCH_JD = 2440587.5;
     private static final double J2000_JD      = 2451545.0;
 
-    /** Mean length of a synodic month, in days. Exposed for callers that want
-     *  to reason about how fast the value moves. */
+    /** Mean length of a synodic month, in days — the period {@link #phase}
+     *  is verified against. */
     public static final double SYNODIC_DAYS = 29.530588853;
 
     /** @param utcMillis wall-clock instant, {@code System.currentTimeMillis()} */
@@ -56,17 +56,6 @@ public final class MoonPhase {
 
         return (float) (norm360(psi) / 360.0);
     }
-
-    /** Fraction of the disc lit, 0 at new and 1 at full. */
-    public static float illumination(long utcMillis) {
-        return illuminationFor(phase(utcMillis));
-    }
-
-    /** {@link #illumination} for an already-computed phase. */
-    public static float illuminationFor(float phase) {
-        return (float) ((1.0 - Math.cos(2 * Math.PI * phase)) / 2.0);
-    }
-
     /**
      * True when the observer sees the moon rotated roughly 180° from the
      * northern-hemisphere view — a waxing crescent lit on the left, not the

@@ -8,8 +8,8 @@ import android.os.IBinder;
 import rikka.shizuku.Shizuku;
 
 /**
- * The only file in the app that imports a Shizuku type — see the V8 design
- * spec item 5. Every method swallows every {@code Throwable}, not just
+ * The only file in the app that imports a Shizuku type. Every method
+ * swallows every {@code Throwable}, not just
  * {@code RuntimeException}: if the AAR is somehow absent at runtime a call
  * into it throws {@code NoClassDefFoundError}, which is not a
  * {@code RuntimeException}, and that has to read as "unavailable" exactly
@@ -70,16 +70,6 @@ public final class ShizukuLock {
         try {
             return Shizuku.pingBinder()
                     && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /** Whether the Shizuku app's binder is reachable at all, regardless of
-     *  whether this app has been granted permission yet. */
-    public static boolean isServiceRunning() {
-        try {
-            return Shizuku.pingBinder();
         } catch (Throwable t) {
             return false;
         }

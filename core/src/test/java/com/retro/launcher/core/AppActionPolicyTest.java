@@ -141,4 +141,32 @@ public class AppActionPolicyTest {
         }
         return out;
     }
+
+    /**
+     * V9 §11. A clone lives in a secondary user profile; every removal intent
+     * a launcher can fire is scoped to its own profile, so UNINSTALL on a
+     * clone row would quietly offer to remove the original app instead of the
+     * clone. The box offers what it can honour, so for a clone that is
+     * LAUNCH and MORE DETAILS and nothing else.
+     */
+    @Test public void aCloneIsOfferedNoRemovalRows() {
+        assertEquals(java.util.Arrays.asList(
+                        AppActionPolicy.Action.LAUNCH, AppActionPolicy.Action.APP_INFO),
+                AppActionPolicy.actionsFor(false, false, false, true));
+    }
+
+    /** True of a cloned system app too — the flags do not get a say once the
+     *  row is in another profile. */
+    @Test public void aClonedSystemAppIsOfferedNoRemovalRowsEither() {
+        assertEquals(java.util.Arrays.asList(
+                        AppActionPolicy.Action.LAUNCH, AppActionPolicy.Action.APP_INFO),
+                AppActionPolicy.actionsFor(true, true, false, true));
+    }
+
+    /** The three-argument overload every existing caller uses must keep
+     *  meaning exactly what it meant: not a clone. */
+    @Test public void theShortOverloadStillMeansNotAClone() {
+        assertEquals(AppActionPolicy.actionsFor(false, false, false, false),
+                AppActionPolicy.actionsFor(false, false, false));
+    }
 }

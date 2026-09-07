@@ -20,6 +20,9 @@ public final class SkyRenderer {
     private static final class Cloud { float x, yf, s, sp; Puff[] puffs; }
     private static final class Drop { float x, yf, v, ph; int len; }
     private static final class Star { int x; float yf, b, ph; boolean big; }
+    private static final class Flake { float x, yf, v, sway, ph; }
+
+    private static final float SUN_RADIUS = 13f;
 
     private final int w, h;
     private final float[] sky = new float[6];
@@ -28,6 +31,7 @@ public final class SkyRenderer {
     private final Cloud[] clouds;
     private final Drop[] drops;
     private final Star[] stars;
+    private final Flake[] flakes;
     private final java.util.Random rand;
 
     private float flash;
@@ -52,6 +56,7 @@ public final class SkyRenderer {
         this.clouds = buildClouds();
         this.drops = buildDrops();
         this.stars = buildStars();
+        this.flakes = buildFlakes();
         this.rand = new java.util.Random(seed);
     }
 
@@ -117,6 +122,20 @@ public final class SkyRenderer {
         return out;
     }
 
+    private Flake[] buildFlakes() {
+        Flake[] out = new Flake[180];
+        for (int i = 0; i < 180; i++) {
+            Flake f = new Flake();
+            f.x = rnd() * 108f;
+            f.yf = rnd();
+            f.v = 0.25f + rnd() * 0.35f;
+            f.sway = 4f + rnd() * 6f;
+            f.ph = rnd() * 6.28f;
+            out[i] = f;
+        }
+        return out;
+    }
+
     public void setTint(int[] rampArgb) { this.tintRamp = rampArgb; }
 
     public void setDesaturation(float amount) {
@@ -134,38 +153,35 @@ public final class SkyRenderer {
         this.southernView = southern;
     }
 
-    public void render(int[] out, float hour, float weather,
-                       float moonPhase, float seconds) {
-
-        final float sunAlt   = sunAlt(hour);
+    public void render(int[] out, SkyConditions c, float seconds) {
+        final float sunAlt   = sunAlt(c.hour);
         final float day      = clamp01(sunAlt * 3f + 0.35f);
         final float night    = 1f - day;
         final float twilight = smooth(0.45f, 0.02f, Math.abs(sunAlt));
-        final float storm    = smooth(0.55f, 1.00f, weather);
-        final float cover    = smooth(0.10f, 0.66f, weather);
-        final float haze     = smooth(0.06f, 0.24f, weather)
-                             * (1f - smooth(0.30f, 0.50f, weather));
-        final float precip   = smooth(0.62f, 0.98f, weather);
+        final float storm    = c.thunder ? 1f : smooth(0.30f, 0.90f, c.precip);
+        final float cover    = c.cloudCover;
+        final float haze     = smooth(0.06f, 0.24f, cover) * (1f - smooth(0.30f, 0.50f, cover));
 
-        SkyKeyframes.at(hour, sky);
+        SkyKeyframes.at(c.hour, sky);
         final float dark = 1f - 0.42f * storm;
         final float topR = sky[0] * dark, topG = sky[1] * dark, topB = sky[2] * dark;
         final float botR = sky[3] * dark, botG = sky[4] * dark, botB = sky[5] * dark;
 
-        // Body positions — DESIGN_NOTES §2b.
-        final float thSun  = sunAngle(hour);
-        final float thMoon = moonAngle(hour, moonPhase);
-        final float travel = 0.3125f * h;
-        final float sunX  = 72f - (float) Math.cos(thSun)  * 60f;
-        final float moonX = 36f - (float) Math.cos(thMoon) * 60f;
-        final float sunY  = 0.667f * h + (1f - (float) Math.sin(thSun))  * travel;
-        final float moonY = 0.333f * h - (1f - (float) Math.sin(thMoon)) * travel;
+        final float sunT = BodyPath.sunT(c.hour);
+        final float sunX = BodyPath.sunX(sunT, w);
+        final float sunY = BodyPath.sunY(sunT, w, h, SUN_RADIUS);
 
-        final float litFrac  = 1f - Math.abs(moonPhase - 0.5f) * 2f;
+        final float moonT = BodyPath.moonT(c.realHour, c.moonriseHour, c.moonsetHour);
+        final boolean moonVisible = !Float.isNaN(moonT) && moonT >= 0f && moonT <= 1f;
+        final float moonX = moonVisible ? BodyPath.moonX(moonT, w) : -1000f;
+        final float moonY = moonVisible ? BodyPath.moonY(moonT, h) : -1000f;
+
+        final float litFrac  = 1f - Math.abs(c.moonPhase - 0.5f) * 2f;
         final float glowSun  = (0.20f + 0.62f * twilight)
                              * clamp01(sunAlt + 0.55f) * (1f - 0.75f * storm);
-        final float glowMoon = 0.26f * clamp01(-sunAlt + 0.25f)
-                             * (1f - 0.75f * storm) * (0.15f + 0.85f * litFrac);
+        final float glowMoon = moonVisible
+                ? 0.26f * clamp01(-sunAlt + 0.25f) * (1f - 0.75f * storm) * (0.15f + 0.85f * litFrac)
+                : 0f;
 
         for (int y = 0; y < h; y++) {
             float ty = (float) y / (h - 1);
@@ -184,11 +200,13 @@ public final class SkyRenderer {
                     r += (255f - r) * k; g += (150f - g) * k; b += (70f - b) * k;
                 }
 
-                float dmx = x - moonX, dmy = y - moonY;
-                float dm = (float) Math.sqrt(dmx * dmx + dmy * dmy);
-                if (dm < 46f) {
-                    float k = (float) Math.pow(1f - dm / 46f, 2.4) * glowMoon;
-                    r += (140f - r) * k; g += (165f - g) * k; b += (220f - b) * k;
+                if (moonVisible) {
+                    float dmx = x - moonX, dmy = y - moonY;
+                    float dm = (float) Math.sqrt(dmx * dmx + dmy * dmy);
+                    if (dm < 46f) {
+                        float k = (float) Math.pow(1f - dm / 46f, 2.4) * glowMoon;
+                        r += (140f - r) * k; g += (165f - g) * k; b += (220f - b) * k;
+                    }
                 }
 
                 if (haze > 0.01f) {
@@ -202,26 +220,42 @@ public final class SkyRenderer {
             }
         }
 
-        renderStars(out, night, weather, cover, seconds);
-        renderMoon(out, sunAlt, twilight, botR, botG, botB, moonX, moonY, moonPhase);
-        renderSun(out, sunAlt, sunX, sunY, seconds);
+        renderStars(out, night, cover, seconds);
+        if (moonVisible) {
+            float moonVisibility = moonVisibility(sunAlt, moonT);
+            renderMoon(out, sunAlt, twilight, botR, botG, botB, moonX, moonY, c.moonPhase, moonVisibility);
+        }
+
+        final float flare = smooth(0.06f, 0f, Math.abs(sunT - 0.5f)) * (1f - cover) * clamp01(sunAlt);
+        renderSun(out, sunAlt, sunX, sunY, seconds, flare);
+        if (flare >= 0.02f) renderLensFlare(out, flare, sunX, sunY);
 
         final float ambR = (topR + botR) / 2f, ambG = (topG + botG) / 2f, ambB = (topB + botB) / 2f;
-        renderClouds(out, storm, twilight, cover, weather, ambR, ambG, ambB, seconds);
-        renderLightning(out, weather);
-        // The public render() signature has no snow flag (see data flow in
-        // the design spec: only `weather` reaches the renderer); rain is the
-        // only precipitation visual for Tier 1.
-        renderPrecipitation(out, precip, weather, ambR, ambG, ambB, seconds);
+        int nShown = Math.round(cover * clouds.length);
+        renderClouds(out, storm, twilight, nShown, c.precip, ambR, ambG, ambB, seconds);
+        if (c.thunder) renderLightning(out);
+        if (c.type == Precip.RAIN) renderPrecipitation(out, c.precip, ambR, ambG, ambB, seconds);
+        else if (c.type == Precip.SNOW) renderSnow(out, c.precip, seconds);
         applyFlash(out);
 
+        applyShimmer(out, c.tempC, seconds);
         if (desaturation > 0f) applyDesaturation(out);
         if (tintRamp != null) applyTint(out);
     }
 
+    /** Sun-driven fade (moon washes out as the sun climbs) times a short
+     *  fade-in/out at the {@code t=0}/{@code t=1} edges of the moon's own
+     *  rise-set window, so it does not pop into or out of existence. */
+    private float moonVisibility(float sunAlt, float moonT) {
+        float sunFade = clamp01(1f - smooth(-0.05f, 0.10f, sunAlt));
+        float edgeIn = smooth(0f, 0.05f, moonT);
+        float edgeOut = smooth(1f, 0.95f, moonT);
+        return sunFade * edgeIn * edgeOut;
+    }
+
     private void renderMoon(int[] out, float sunAlt, float twilight,
                             float botR, float botG, float botB,
-                            float moonX, float moonY, float moonPhase) {
+                            float moonX, float moonY, float moonPhase, float visibility) {
         if (moonY >= h + 16) return;
         final float R = 12f;
 
@@ -246,7 +280,7 @@ public final class SkyRenderer {
                 float term = (float) (Math.cos(2 * Math.PI * q) * Math.sqrt(Math.max(0, 1 - ny * ny)));
                 boolean lit = (sx * nx) > term;
                 float X = moonX + x, Y = moonY + y;
-                if (!lit) { px(out, X, Y, darkColR, darkColG, darkColB, 0.55f); continue; }
+                if (!lit) { px(out, X, Y, darkColR, darkColG, darkColB, 0.55f * visibility); continue; }
 
                 int xi = (int) X, yi = (int) Y;
                 float dd = (float) Math.hypot(mx + 2.5, my + 3) + (Bayer.M[yi & 3][xi & 3] / 16f - 0.5f) * 2.2f;
@@ -261,12 +295,12 @@ public final class SkyRenderer {
                         break;
                     }
                 }
-                px(out, X, Y, cr, cg, cb, 1f);
+                px(out, X, Y, cr, cg, cb, visibility);
             }
         }
     }
 
-    private void renderSun(int[] out, float sunAlt, float sunX, float sunY, float seconds) {
+    private void renderSun(int[] out, float sunAlt, float sunX, float sunY, float seconds, float flare) {
         if (sunY >= h + 18) return;
         final float R = 13f;
 
@@ -278,10 +312,12 @@ public final class SkyRenderer {
         int rayLen = Math.max(0, Math.round(
                 (2 + Math.round(1.6f + 1.6f * (float) Math.sin(seconds * 1.6)))
                         * (0.45f + 0.75f * clamp01(sunAlt + 0.4f))));
+        int horizRayLen = rayLen + Math.round(flare * 14f);
         for (int a = 0; a < 8; a++) {
             double ang = a * Math.PI / 4;
             double dx = Math.cos(ang), dy = Math.sin(ang);
-            for (int i = 0; i < rayLen; i++) {
+            int len = (a == 0 || a == 4) ? horizRayLen : rayLen;
+            for (int i = 0; i < len; i++) {
                 float rr = R + 3 + i;
                 px(out, Math.round(sunX + dx * rr), Math.round(sunY + dy * rr), t1R, t1G, t1B, 0.95f);
             }
@@ -300,8 +336,36 @@ public final class SkyRenderer {
         }
     }
 
-    private void renderStars(int[] out, float night, float weather, float cover, float seconds) {
-        float starVis = night * (1f - clamp01(weather / 0.30f)) * (1f - cover);
+    private void renderLensFlare(int[] out, float flare, float sunX, float sunY) {
+        int ghostCount = 5;
+        for (int g = 1; g <= ghostCount; g++) {
+            float frac = g / (float) (ghostCount + 1);
+            float gy = sunY + (h - sunY) * frac;
+            float radius = 10f - g * 1.6f;
+            if (radius < 2f) continue;
+            drawRing(out, sunX, gy, radius, flare);
+        }
+    }
+
+    private void drawRing(int[] out, float cx, float cy, float radius, float strength) {
+        float thickness = 1.5f;
+        int steps = Math.max(12, Math.round(radius * 6f));
+        for (int pass = 0; pass < 2; pass++) {
+            float r = radius + pass * thickness;
+            for (int i = 0; i < steps; i++) {
+                double ang = 2 * Math.PI * i / steps;
+                float x = cx + (float) Math.cos(ang) * r;
+                float y = cy + (float) Math.sin(ang) * r;
+                int xi = (int) x, yi = Math.max(0, Math.min(h - 1, (int) y));
+                float d = Bayer.M[yi & 3][xi & 3] / 16f - 0.5f;
+                if (strength + d * 0.3f < 0.35f) continue;
+                px(out, x, y, quantize(255), quantize(214), quantize(120), 1f);
+            }
+        }
+    }
+
+    private void renderStars(int[] out, float night, float cover, float seconds) {
+        float starVis = night * (1f - cover);
         if (starVis <= 0.02f) return;
         for (Star st : stars) {
             float tw = 0.55f + 0.45f * (float) Math.sin(seconds * 1.7 + st.ph);
@@ -315,7 +379,7 @@ public final class SkyRenderer {
         }
     }
 
-    private void renderClouds(int[] out, float storm, float twilight, float cover, float weather,
+    private void renderClouds(int[] out, float storm, float twilight, int nShown, float precip,
                               float ambR, float ambG, float ambB, float seconds) {
         float baseR = lerp(252, ambR, 0.52f), baseG = lerp(253, ambG, 0.52f), baseB = lerp(255, ambB, 0.52f);
         baseR = lerp(baseR, 58, storm * 0.82f); baseG = lerp(baseG, 62, storm * 0.82f); baseB = lerp(baseB, 80, storm * 0.82f);
@@ -326,14 +390,13 @@ public final class SkyRenderer {
         float midR = baseR * 0.94f, midG = baseG * 0.94f, midB = baseB * 0.94f;
         float loR = baseR * 0.72f, loG = baseG * 0.72f, loB = baseB * 0.72f;
 
-        float wind = 0.35f + 2.4f * weather;
-        int nShown = Math.round(cover * clouds.length);
+        float wind = 0.35f + 2.4f * precip;
 
         for (int ci = 0; ci < nShown; ci++) {
             Cloud c = clouds[ci];
-            float s = c.s * (0.85f + 0.55f * cover);
+            float s = c.s * (0.85f + 0.55f * (nShown / (float) clouds.length));
             float cx = mod(c.x + seconds * c.sp * wind, w + 90f) - 45f;
-            float cy = c.yf * h - cover * 6f;
+            float cy = c.yf * h - (nShown / (float) clouds.length) * 6f;
 
             float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
             for (Puff p : c.puffs) {
@@ -366,8 +429,9 @@ public final class SkyRenderer {
         }
     }
 
-    private void renderLightning(int[] out, float weather) {
-        if (weather > 0.90f && rand.nextFloat() < (weather - 0.90f) * 0.9f) {
+    private void renderLightning(int[] out) {
+        final float STRIKE_CHANCE_PER_FRAME = 0.12f;
+        if (rand.nextFloat() < STRIKE_CHANCE_PER_FRAME) {
             flash = 1f;
             float bx = 18f + rand.nextFloat() * (w - 36);
             float x = bx, y = 40f + rand.nextFloat() * 30f;
@@ -393,22 +457,35 @@ public final class SkyRenderer {
         }
     }
 
-    private void renderPrecipitation(int[] out, float precip, float weather,
+    private void renderPrecipitation(int[] out, float precip,
                                      float ambR, float ambG, float ambB, float seconds) {
         if (precip <= 0.01f) return;
         int count = Math.round(drops.length * precip);
-        float slant = 0.55f + weather * 1.7f;
+        float slant = 0.55f + precip * 1.7f;
         float rainR = lerp(176, ambR, 0.35f), rainG = lerp(206, ambG, 0.35f), rainB = lerp(238, ambB, 0.35f);
 
         for (int i = 0; i < count; i++) {
             Drop d = drops[i];
             float dy0 = d.yf * h;
-            float speed = 70f + d.v * 90f + weather * 60f;
+            float speed = 70f + d.v * 90f + precip * 60f;
             float yy = mod(dy0 + seconds * speed, h + 12f) - 6f;
             float xx = mod(d.x + seconds * speed * slant * 0.28f, w + 12f) - 6f;
             for (int k = 0; k < d.len; k++) {
                 px(out, xx + k * slant * 0.5f, yy + k, rainR, rainG, rainB, 0.72f - k * 0.12f);
             }
+        }
+    }
+
+    private void renderSnow(int[] out, float precip, float seconds) {
+        if (precip <= 0.01f) return;
+        int count = Math.round(flakes.length * precip);
+        for (int i = 0; i < count; i++) {
+            Flake f = flakes[i];
+            float speed = 14f + f.v * 20f;
+            float yy = mod(f.yf * h + seconds * speed, h + 8f) - 4f;
+            float sway = (float) Math.sin(seconds * 0.8f + f.ph) * f.sway;
+            float xx = mod(f.x + sway, w + 8f) - 4f;
+            px(out, xx, yy, 255, 255, 255, 0.85f);
         }
     }
 
@@ -423,6 +500,21 @@ public final class SkyRenderer {
                           clampByte(b + (250 - b) * a));
         }
         flash *= 0.72f;
+    }
+
+    private void applyShimmer(int[] out, int tempC, float seconds) {
+        float shimmer = smooth(35f, 45f, tempC);
+        if (shimmer < 0.01f) return;
+        int[] src = out.clone();
+        for (int y = 0; y < h; y++) {
+            float amp = shimmer * 2.5f * (float) Math.pow(y / (float) h, 1.5);
+            int dx = Math.round(amp * (float) Math.sin(y * 0.35f + seconds * 2.2f));
+            if (dx == 0) continue;
+            for (int x = 0; x < w; x++) {
+                int sx = x - dx;
+                out[y * w + x] = (sx >= 0 && sx < w) ? src[y * w + sx] : src[y * w + x];
+            }
+        }
     }
 
     private static float mod(float v, float m) {
@@ -490,28 +582,6 @@ public final class SkyRenderer {
                 out[i] = tintRamp[idx < 0 ? 0 : (idx >= n ? n - 1 : idx)];
             }
         }
-    }
-
-    /** The sun's hour angle: 0 at 06:00, π at 18:00. */
-    static float sunAngle(float hour) {
-        return (hour - 6f) / 12f * (float) Math.PI;
-    }
-
-    /**
-     * The moon's hour angle. The moon lags the sun by exactly its
-     * elongation: new moon ({@code phase 0}) puts it on the sun; full
-     * ({@code phase 0.5}) puts it opposite — the one case the old fixed
-     * {@code thSun + π} formula got right, since it assumed every night was
-     * a full moon. The quarters sit a quarter turn off, matching them
-     * rising/setting roughly six hours from the sun.
-     *
-     * <p>Ignores lunar declination and the parallactic angle, so this is
-     * right to roughly the hour rather than the minute — see MoonPhase's
-     * own javadoc for the same limit on the phase itself. Against a 12px
-     * disc that is the correct place to stop.
-     */
-    static float moonAngle(float hour, float phase) {
-        return sunAngle(hour) + 2f * (float) Math.PI * phase;
     }
 
     /** Day span, in hours, between the sky gradient's dawn and dusk

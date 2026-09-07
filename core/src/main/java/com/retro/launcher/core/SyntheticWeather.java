@@ -15,12 +15,15 @@ public final class SyntheticWeather {
         float sunAlt = SkyRenderer.sunAlt(hour);
         float cover = SkyRenderer.smooth(0.10f, 0.66f, wv);
         float precip = SkyRenderer.smooth(0.62f, 0.98f, wv);
+        boolean thunder = wv >= 0.95f;
+        Precip type = precip > 0f ? (snow ? Precip.SNOW : Precip.RAIN) : Precip.NONE;
 
         int tempC = snow
                 ? Math.round(-2 - 6 * precip - 3 * cover + 4 * SkyRenderer.clamp01(sunAlt))
                 : Math.round(17 + 9 * sunAlt - 5 * cover - 4 * precip);
 
-        return new Weather(tempC, label(wv, snow), wv);
+        int precipProbability = Math.round(precip * 100f);
+        return new Weather(tempC, label(wv, snow), cover, precip, type, thunder, precipProbability);
     }
 
     /**

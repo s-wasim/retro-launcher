@@ -18,8 +18,8 @@ import com.retro.launcher.core.Detents;
  * <p>Taps are one-shots. A drag used to be a repeating waveform re-commanded
  * as its amplitude bucket changed — up to 40ms of continuous motor time per
  * commit, held open for the whole drag. That is what tripped the platform's
- * per-app vibration cutoff on a slow panel expansion (V8 design spec item
- * 2). A drag is now a sequence of short, non-repeating "detent" pulses, one
+ * per-app vibration cutoff on a slow panel expansion, fixed in V8. A drag
+ * is now a sequence of short, non-repeating "detent" pulses, one
  * per {@link Detents} threshold crossed, in either direction, capped at
  * {@link #MAX_TICKS_PER_GESTURE} per gesture so an oscillating drag cannot
  * re-drive the motor indefinitely.

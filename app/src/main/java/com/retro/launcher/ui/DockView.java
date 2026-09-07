@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
@@ -13,12 +15,13 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 
+import com.retro.launcher.core.ComponentKey;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.data.AppEntry;
 import com.retro.launcher.icons.IconSource;
-import com.retro.launcher.theme.Tint;
 import com.retro.launcher.util.Haptics;
+import com.retro.launcher.util.Launch;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -219,36 +222,53 @@ public final class DockView extends LinearLayout {
         return row;
     }
 
-    /** The dock stores components, not drawer rows; the icon source wants a
-     *  row. Only the package name and the letter matter to it. */
+    /** The dock stores component keys, not drawer rows; the icon source wants
+     *  a row. Only the package name and the letter matter to it. */
     private static AppEntry entryFor(String component) {
-        int slash = component.indexOf('/');
-        String pkg = slash >= 0 ? component.substring(0, slash) : component;
-        String activity = slash >= 0 ? component.substring(slash + 1) : "";
-        return new AppEntry(labelFor(component), pkg, activity, Collections.emptyList(), false);
+        return new AppEntry(labelFor(component),
+                ComponentKey.packageOf(component), ComponentKey.activityOf(component),
+                Collections.emptyList(), false);
     }
 
     /** Shared with SettingsPanel's dock editor so both list the same names. */
     public static String labelFor(String component) {
-        int slash = component.indexOf('/');
-        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        String pkg = ComponentKey.packageOf(component);
         int dot = pkg.lastIndexOf('.');
         String tail = dot >= 0 ? pkg.substring(dot + 1) : pkg;
         return tail.isEmpty() ? "?" : tail.toUpperCase(java.util.Locale.ROOT);
     }
 
     private void launch(String component) {
-        int slash = component.indexOf('/');
-        if (slash < 0) return;
-        String pkg = component.substring(0, slash), activity = component.substring(slash + 1);
+        String pkg = ComponentKey.packageOf(component);
+        String activity = ComponentKey.activityOf(component);
+        if (pkg.isEmpty() || activity.isEmpty()) return;
+        ComponentName target = new ComponentName(pkg, activity);
+
+        // A docked clone (V9 §11) lives in another user profile, which no
+        // intent from this process can reach. The key carries the profile's
+        // serial rather than its UserHandle because a handle's identifier is
+        // not stable across reboots and this string is persisted.
+        UserHandle user = profileFor(ComponentKey.serialOf(component));
+        if (user != null && Launch.mainActivity(getContext(), target, user)) return;
+
         Intent intent = new Intent(Intent.ACTION_MAIN);
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
-        intent.setComponent(new ComponentName(pkg, activity));
+        intent.setComponent(target);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             getContext().startActivity(intent);
-        } catch (ActivityNotFoundException ignored) {
-            // The app was uninstalled since the dock was last saved.
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            // The app was uninstalled, or the clone's profile was removed,
+            // since the dock was last saved.
         }
+    }
+
+    /** Null for our own profile and for a serial the platform no longer
+     *  knows — a clone whose profile has since been turned off, where the
+     *  ordinary intent path is the right thing to try next. */
+    private UserHandle profileFor(long serial) {
+        if (serial == ComponentKey.PRIMARY) return null;
+        UserManager users = (UserManager) getContext().getSystemService(Context.USER_SERVICE);
+        return users == null ? null : users.getUserForSerialNumber(serial);
     }
 }

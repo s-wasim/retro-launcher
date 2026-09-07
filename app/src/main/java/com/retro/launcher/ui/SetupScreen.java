@@ -16,7 +16,7 @@ import com.retro.launcher.core.Metrics;
  *
  * Usage Access feeds Screen Time; a precise location fix feeds the weather
  * reading (Tier 5). Continuing works with neither — no permission blocks the launcher
- * (spec §5, DESIGN_NOTES §9 row 10's permissions caption), and a skipped setup
+ * (DESIGN_NOTES §9 row 10's permissions caption), and a skipped setup
  * stays recoverable from Settings' permissions block.
  */
 public final class SetupScreen extends FrameLayout {

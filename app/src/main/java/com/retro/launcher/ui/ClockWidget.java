@@ -23,8 +23,8 @@ import java.util.Calendar;
 
 /**
  * The clock/weather widget: three independent tap regions (time, date,
- * weather). See DESIGN_NOTES §7a and spec §5's "no permission blocks
- * anything" rule — every intent here is best-effort.
+ * weather). See DESIGN_NOTES §7a; per the "no permission blocks anything"
+ * rule, every intent here is best-effort.
  *
  * The colon is always solid and seconds are never shown — this is a fixed
  * design decision (issue #6, 2026-08-28), not a user preference. Do not
@@ -53,7 +53,7 @@ public final class ClockWidget extends FrameLayout {
     private final Prefs prefs;
     private Calendar lastTime;
 
-    private Runnable onTimeTap, onDateTap, onWeatherTap, onNoWeatherApp;
+    private Runnable onNoWeatherApp;
     private Runnable onWeatherLongPress;
 
     public ClockWidget(Context context) {
@@ -82,9 +82,9 @@ public final class ClockWidget extends FrameLayout {
 
         LauncherRoot.setNoSwipe(this);
 
-        timeView.setOnClickListener(v -> { tick(); tap(onTimeTap, this::openClock); });
-        dateView.setOnClickListener(v -> { tick(); tap(onDateTap, this::openCalendar); });
-        weatherView.setOnClickListener(v -> { tick(); tap(onWeatherTap, this::openWeather); });
+        timeView.setOnClickListener(v -> { tick(); openClock(); });
+        dateView.setOnClickListener(v -> { tick(); openCalendar(); });
+        weatherView.setOnClickListener(v -> { tick(); openWeather(); });
         weatherView.setOnLongClickListener(v -> {
             thud();
             if (onWeatherLongPress != null) onWeatherLongPress.run();
@@ -166,10 +166,6 @@ public final class ClockWidget extends FrameLayout {
         background.setStroke(borderPx, borderColor);
     }
 
-    public void setOnTimeTap(Runnable r) { this.onTimeTap = r; }
-    public void setOnDateTap(Runnable r) { this.onDateTap = r; }
-    public void setOnWeatherTap(Runnable r) { this.onWeatherTap = r; }
-
     /** Runs when the weather region was tapped and no weather app is
      *  installed to open. */
     public void setOnNoWeatherApp(Runnable r) { this.onNoWeatherApp = r; }
@@ -231,11 +227,5 @@ public final class ClockWidget extends FrameLayout {
         }
         String unit = prefs.unit();
         weatherView.setText(w.tempIn(unit) + "° " + w.label);
-    }
-
-    /** A tap region runs its listener if one is set, otherwise its default
-     *  app launch. Both paths are best-effort — see {@link Launch}. */
-    private void tap(Runnable custom, Runnable fallback) {
-        (custom != null ? custom : fallback).run();
     }
 }

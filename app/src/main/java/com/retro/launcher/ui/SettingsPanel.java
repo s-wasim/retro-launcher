@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 /**
  * Tier 3 — the fourth panel. Four DESIGN_NOTES §7c sections (PALETTE,
  * CLOCK &amp; DATE, TEMPERATURE, DOCK) plus a native-only PERMISSIONS block
- * (spec §5) with live status and a fix button, so a skipped first-run setup
+ * with live status and a fix button, so a skipped first-run setup
  * is recoverable without a reinstall. Every control writes straight through
  * {@link Prefs} and calls {@code onPrefsChanged} so the caller can refresh
  * whatever else depends on it (palette, clock, dock).
@@ -58,7 +58,6 @@ public final class SettingsPanel extends FrameLayout {
         void onSetDefaultLauncher();
         void onEnableNotificationShade();
         void onEnableShizukuLock();
-        void onEnableOverlay();
     }
 
     private static final int CUSTOM_IDX = DateFormatter.PRESETS.length;
@@ -75,6 +74,7 @@ public final class SettingsPanel extends FrameLayout {
     private final LinearLayout feedbackSection;
     private final LinearLayout dockSection;
     private final LinearLayout permSection;
+    private final LinearLayout wallpaperSection;
 
     private Runnable onPrefsChanged = () -> {};
     private Runnable onClose = () -> {};
@@ -92,7 +92,6 @@ public final class SettingsPanel extends FrameLayout {
     private boolean shadeServiceEnabled;
     private boolean shizukuLockEnabled;
     private boolean shizukuLockPermitted;
-    private boolean overlayGranted;
 
     public SettingsPanel(Context context, Metrics metrics, Prefs prefs) {
         super(context);
@@ -123,6 +122,7 @@ public final class SettingsPanel extends FrameLayout {
         content.addView(feedbackSection = section());
         content.addView(dockSection = section());
         content.addView(permSection = section());
+        content.addView(wallpaperSection = section());
 
         scroll.addView(content, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
@@ -223,8 +223,8 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPermissionsSection();
     }
 
-    /** DESIGN_NOTES §9 deltas 19 and 25: which route long-press-home-to-lock
-     *  has, which is also how the row tells "ON" from "PIN ONLY". */
+    /** DESIGN_NOTES §9 deltas 19 and 25: which route double-tap-home-to-lock
+     *  has (V9 §8 moved it off the long press). */
     public void setDeviceLockStatus(LockRoute route) {
         this.lockRoute = route;
         rebuildPermissionsSection();
@@ -243,17 +243,12 @@ public final class SettingsPanel extends FrameLayout {
         rebuildPermissionsSection();
     }
 
-    /** V8 design spec item 5: whether the SHIZUKU LOCK toggle is on, and
-     *  whether a permitted session is currently reachable — two different
+    /** Whether the SHIZUKU LOCK toggle is on, and whether a permitted
+     *  session is currently reachable — two different
      *  things, since the toggle survives a reboot but the pairing does not. */
     public void setShizukuLockStatus(boolean enabled, boolean permitted) {
         this.shizukuLockEnabled = enabled;
         this.shizukuLockPermitted = permitted;
-        rebuildPermissionsSection();
-    }
-
-    public void setOverlayStatus(boolean granted) {
-        this.overlayGranted = granted;
         rebuildPermissionsSection();
     }
 
@@ -264,6 +259,7 @@ public final class SettingsPanel extends FrameLayout {
         rebuildFeedbackSection();
         rebuildDockSection();
         rebuildPermissionsSection();
+        rebuildWallpaperSection();
     }
 
     // ---- PALETTE -----------------------------------------------------
@@ -548,6 +544,32 @@ public final class SettingsPanel extends FrameLayout {
     /** One toggle, and deliberately its own section rather than a row under
      *  another: haptics are the only thing in the launcher that the user
      *  feels rather than sees. */
+    // ---- WALLPAPER -----------------------------------------------------
+
+    /** V9 §7b: a manual override for every wallpaper input, for testing and
+     *  preview — off by default so real weather is what ships. */
+    private void rebuildWallpaperSection() {
+        wallpaperSection.removeAllViews();
+        if (palette == null) return;
+        wallpaperSection.addView(sectionHeader("WALLPAPER"));
+        wallpaperSection.addView(toggleRow("MANUAL WALLPAPER", prefs.manualWallpaper(), checked -> {
+            prefs.putBool(Prefs.K_WX_OVERRIDE, checked);
+            onPrefsChanged.run();
+        }));
+
+        TextView caption = new TextView(getContext());
+        caption.setText("WHEN ON, A WALLPAPER PANEL APPEARS AT THE TOP OF SCREEN TIME WITH "
+                + "SLIDERS FOR CLOUD COVER, PRECIPITATION, TEMPERATURE, TIME OF DAY AND MOON "
+                + "PHASE, PLUS THUNDER AND SNOW TOGGLES. THE SKY FOLLOWS THEM LIVE INSTEAD OF "
+                + "THE REAL READING.");
+        caption.setTypeface(Typeface.MONOSPACE);
+        caption.setTextColor(palette.a);
+        caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
+        addTopMargin(caption, Math.round(metrics.cqw(3f)));
+        wallpaperSection.addView(caption);
+    }
+
     private void rebuildFeedbackSection() {
         feedbackSection.removeAllViews();
         if (palette == null) return;
@@ -660,10 +682,9 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(usageRow, gap);
         permSection.addView(usageRow);
 
-        // Three states, not two. "PIN ONLY" is the device-admin route: it does
-        // lock, but Android refuses the fingerprint on the next unlock, so it
-        // draws in the attention colour and stays tappable — same as ENABLE —
-        // rather than reading as done.
+        // Two states since V9 §10 retired the device admin and with it the
+        // "PIN ONLY" middle state: both surviving routes leave the fingerprint
+        // working, so a route that locks at all is a route that is done.
         View lockRow = permissionRow("DEVICE LOCK", lockRoute.settled(),
                 lockRoute.status(), lockRoute.status(),
                 () -> { if (permissionListener != null) permissionListener.onEnableDeviceLock(); });
@@ -674,11 +695,6 @@ public final class SettingsPanel extends FrameLayout {
                 () -> { if (permissionListener != null) permissionListener.onEnableNotificationShade(); });
         addTopMargin(shadeRow, gap);
         permSection.addView(shadeRow);
-
-        View overlayRow = permissionRow("DRAW OVER APPS", overlayGranted, "ON", "ENABLE",
-                () -> { if (permissionListener != null) permissionListener.onEnableOverlay(); });
-        addTopMargin(overlayRow, gap);
-        permSection.addView(overlayRow);
 
         // Three states again, same shape as DEVICE LOCK: off (never opted
         // in), on-but-not-permitted (opted in, needs (re-)pairing — the
@@ -701,20 +717,15 @@ public final class SettingsPanel extends FrameLayout {
         TextView caption = new TextView(getContext());
         caption.setText("WEATHER NEEDS PRECISE LOCATION · SCREEN TIME NEEDS USAGE ACCESS. "
                 + "THE LAUNCHER WORKS WITHOUT EITHER.\n\n"
-                + "LONG-PRESS THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
+                + "DOUBLE-TAP THE HOME SCREEN TO LOCK, ONCE DEVICE LOCK IS ON.\n\n"
                 + "DEVICE LOCK AND NOTIFICATION SHADE BOTH RUN OFF THE SAME ONE SWITCH: "
                 + "RETRO LAUNCHER UNDER ACCESSIBILITY. IT READS NOTHING; IT ONLY LOCKS THE "
                 + "SCREEN AND OPENS THE SHADE.\n\n"
-                + "PIN ONLY MEANS LOCKING STILL GOES THROUGH ADMIN ACCESS, WHICH MAKES "
-                + "ANDROID ASK FOR YOUR PIN INSTEAD OF YOUR FINGERPRINT. TAP IT AND SWITCH "
-                + "ON ACCESSIBILITY TO KEEP THE FINGERPRINT.\n\n"
                 + "SHIZUKU LOCK IS AN OPTIONAL ALTERNATIVE TO ACCESSIBILITY THAT SOME "
                 + "BANKING APPS DO NOT FLAG. IT NEEDS A SEPARATE SHIZUKU APP PAIRED OVER "
                 + "WIRELESS DEBUGGING, AND THAT PAIRING MUST BE REDONE AFTER EVERY REBOOT "
                 + "UNLESS YOUR DEVICE IS ROOTED. GRANT MEANS THE TOGGLE IS ON BUT THE "
                 + "PAIRING HAS LAPSED.\n\n"
-                + "DRAW OVER APPS LETS THE LAUNCHER STAY ON SCREEN INSTANTLY WHEN YOU PRESS "
-                + "HOME, INSTEAD OF WAITING FOR ANDROID TO REOPEN IT FROM RECENTS.\n\n"
                 + "TAP SET ON DEFAULT LAUNCHER TO PICK RETRO LAUNCHER AS YOUR HOME APP.");
         caption.setTypeface(Typeface.MONOSPACE);
         caption.setTextColor(palette.a);

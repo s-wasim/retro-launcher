@@ -18,7 +18,7 @@ import com.retro.launcher.core.Palette;
  * what the view actually is.
  *
  * Palette changes at most once a minute, and only the currently visible panel
- * is walked — see DESIGN_NOTES §3 and the spec's §3.3 data flow.
+ * is walked — see DESIGN_NOTES §3.
  */
 public final class Tint {
 

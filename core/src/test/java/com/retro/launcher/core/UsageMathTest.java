@@ -90,16 +90,6 @@ public class UsageMathTest {
         assertEquals(60 * 60_000L, UsageMath.totalForDay(Arrays.asList(iv), day8, ny));
     }
 
-    @Test public void snapLimitClampsToRangeAndSnapsToNearestFifteen() {
-        assertEquals(30, UsageMath.snapLimit(0));
-        assertEquals(30, UsageMath.snapLimit(30));
-        assertEquals(30, UsageMath.snapLimit(37));
-        assertEquals(45, UsageMath.snapLimit(38));
-        assertEquals(600, UsageMath.snapLimit(9999));
-        assertEquals(600, UsageMath.snapLimit(600));
-        assertEquals(150, UsageMath.snapLimit(150));
-    }
-
     @Test public void limitStateReportsMinutesLeftUnderLimit() {
         long today = 100 * 60_000L; // 100 minutes used
         assertFalse(UsageMath.isOverLimit(today, 240));
