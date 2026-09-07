@@ -163,6 +163,7 @@ public class HomeActivity extends Activity {
         screenTime = new ScreenTimePanel(this, metrics, prefs);
         screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
         screenTime.setOnLimitChangedListener(this::refreshUsage);
+        screenTime.setOnWallpaperOverrideChangedListener(this::refreshTime);
 
         // The weather region opens a weather app (DESIGN_NOTES §9 row 8). With
         // none installed it used to do nothing; now it asks for a fresh
@@ -406,8 +407,11 @@ public class HomeActivity extends Activity {
 
     /** The moon's phase is the same everywhere; which way up it looks, and
      *  what real time maps onto the sky gradient, are not. Both come from
-     *  the coarse fix and solar times the weather repository already keeps. */
+     *  the coarse fix and solar times the weather repository already keeps —
+     *  skipped entirely while the manual wallpaper override drives the sky
+     *  instead (V9 §7b). */
     private void refreshSkyLocation() {
+        if (prefs.manualWallpaper()) return;
         double[] fix = weatherRepository.fix();
         sky.setLocation(fix == null ? Float.NaN : (float) fix[0],
                          fix == null ? Float.NaN : (float) fix[1]);
@@ -421,11 +425,16 @@ public class HomeActivity extends Activity {
         // The sky always gets a value — a synthetic one when we have no
         // reading — but the widget must not present invented weather as a
         // measurement, so it gets null and renders "--°" instead (spec §3.6).
-        Weather w = weatherRepository.current(decimalHour());
-        Weather shown = weatherRepository.hasReading() ? w : null;
+        // The manual override (V9 §7b) short-circuits both: its reading is
+        // deliberate, so the widget shows it rather than "--°".
+        boolean manual = prefs.manualWallpaper();
+        Weather w = manual ? prefs.overrideWeather() : weatherRepository.current(decimalHour());
+        Weather shown = manual || weatherRepository.hasReading() ? w : null;
         home.setWeather(shown);
         settings.setWeather(shown);
-        sky.setWeather(w.w);
+        sky.setWeather(w);
+        sky.setManualOverride(manual, prefs.overrideHour(), prefs.overrideMoonPhase());
+        screenTime.setManualWallpaperEnabled(manual);
     }
 
     private boolean hasLocationPermission() {
