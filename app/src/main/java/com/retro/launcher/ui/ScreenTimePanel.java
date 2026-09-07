@@ -63,6 +63,9 @@ public final class ScreenTimePanel extends FrameLayout {
     private final LinearLayout weekSection;
     private final WeekChart weekChart;
     private final LinearLayout mostUsedSection;
+    private final LinearLayout wallpaperSection;
+
+    private Runnable onWallpaperOverrideChanged = () -> {};
 
     private Runnable onClose = () -> {};
     private Runnable onLimitChanged = () -> {};
@@ -96,6 +99,14 @@ public final class ScreenTimePanel extends FrameLayout {
         content.setOrientation(LinearLayout.VERTICAL);
         int sidePad = Math.round(metrics.cqw(4.5f));
         content.setPadding(sidePad, 0, sidePad, Math.round(metrics.cqw(8f)));
+
+        wallpaperSection = new LinearLayout(context);
+        wallpaperSection.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams wallpaperLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        wallpaperLp.bottomMargin = Math.round(metrics.cqw(6f));
+        wallpaperSection.setLayoutParams(wallpaperLp);
+        content.addView(wallpaperSection);
 
         // The day's total, with the coffee button next to it. The total takes the
         // slack so the button keeps its measured width on a narrow screen
@@ -272,6 +283,7 @@ public final class ScreenTimePanel extends FrameLayout {
         rebuildLimitCard();
         rebuildWeekChart();
         rebuildMostUsed();
+        rebuildWallpaperSection(prefs.manualWallpaper());
     }
 
     /** Pulled fresh from {@link UsageRepository} on every resume. */
@@ -446,6 +458,114 @@ public final class ScreenTimePanel extends FrameLayout {
         minutes.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 metrics.textPx(DrawerPanel.SIZE_ACTION_CQW, DrawerPanel.SIZE_ACTION_MIN));
         row.addView(minutes);
+
+        return row;
+    }
+
+    public void setOnWallpaperOverrideChangedListener(Runnable r) { this.onWallpaperOverrideChanged = r; }
+
+    /** V9 §7b: HomeActivity calls this after every prefs change, since the
+     *  MANUAL WALLPAPER toggle itself lives in Settings, not here. */
+    public void setManualWallpaperEnabled(boolean enabled) {
+        rebuildWallpaperSection(enabled);
+    }
+
+    // ---- WALLPAPER (V9 §7b) ----------------------------------------------
+
+    private void rebuildWallpaperSection(boolean enabled) {
+        wallpaperSection.removeAllViews();
+        if (palette == null || !enabled) return;
+
+        wallpaperSection.addView(sectionHeader("WALLPAPER"));
+        int gap = Math.round(metrics.cqw(2.5f));
+
+        wallpaperSection.addView(overrideSlider("CLOUD COVER", 0f, 100f, 5f,
+                Prefs.K_OV_CLOUD, prefs.getFloat(Prefs.K_OV_CLOUD, 0f) * 100f,
+                v -> prefs.putFloat(Prefs.K_OV_CLOUD, v / 100f), "%", gap));
+
+        wallpaperSection.addView(overrideSlider("PRECIPITATION", 0f, 100f, 5f,
+                Prefs.K_OV_PRECIP, prefs.getFloat(Prefs.K_OV_PRECIP, 0f) * 100f,
+                v -> prefs.putFloat(Prefs.K_OV_PRECIP, v / 100f), "%", gap));
+
+        wallpaperSection.addView(overrideSlider("TEMPERATURE", -20f, 50f, 1f,
+                Prefs.K_OV_TEMP, prefs.getFloat(Prefs.K_OV_TEMP, 20f),
+                v -> prefs.putFloat(Prefs.K_OV_TEMP, v), "°C", gap));
+
+        wallpaperSection.addView(overrideSlider("TIME OF DAY", 0f, 24f, 0.25f,
+                Prefs.K_OV_HOUR, prefs.getFloat(Prefs.K_OV_HOUR, 12f),
+                v -> prefs.putFloat(Prefs.K_OV_HOUR, v), "H", gap));
+
+        wallpaperSection.addView(overrideSlider("MOON PHASE", 0f, 1f, 0.01f,
+                Prefs.K_OV_MOON, prefs.getFloat(Prefs.K_OV_MOON, 0.5f),
+                v -> prefs.putFloat(Prefs.K_OV_MOON, v), "", gap));
+
+        LinearLayout thunderRow = wallpaperToggleRow("THUNDER", prefs.getBool(Prefs.K_OV_THUNDER, false),
+                v -> prefs.putBool(Prefs.K_OV_THUNDER, v));
+        addTopMargin(thunderRow, gap);
+        wallpaperSection.addView(thunderRow);
+
+        LinearLayout snowRow = wallpaperToggleRow("SNOW", prefs.getBool(Prefs.K_OV_SNOW, false),
+                v -> prefs.putBool(Prefs.K_OV_SNOW, v));
+        addTopMargin(snowRow, gap);
+        wallpaperSection.addView(snowRow);
+    }
+
+    private View overrideSlider(String label, float min, float max, float step, String key,
+                                 float initial, java.util.function.Consumer<Float> onChange,
+                                 String unit, int gap) {
+        LinearLayout col = new LinearLayout(getContext());
+        col.setOrientation(LinearLayout.VERTICAL);
+        addTopMargin(col, gap);
+
+        TextView title = new TextView(getContext());
+        title.setText(label);
+        title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        title.setAllCaps(true);
+        title.setTextColor(palette.ink);
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
+        col.addView(title);
+
+        PixelSlider slider = new PixelSlider(getContext(), metrics, min, max, step,
+                s -> (s > 0 ? "+" : "−") + Math.abs(s) + unit);
+        slider.setHaptics(haptics);
+        slider.setPalette(palette);
+        slider.setValue(initial);
+        slider.setOnValueChangeListener(v -> {
+            onChange.accept(v);
+            onWallpaperOverrideChanged.run();
+        });
+        LinearLayout.LayoutParams sliderLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        sliderLp.topMargin = Math.round(metrics.cqw(1f));
+        col.addView(slider, sliderLp);
+
+        return col;
+    }
+
+    private LinearLayout wallpaperToggleRow(String label, boolean checked,
+                                             java.util.function.Consumer<Boolean> onChange) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView labelView = new TextView(getContext());
+        labelView.setText(label);
+        labelView.setTypeface(Typeface.MONOSPACE);
+        labelView.setAllCaps(true);
+        labelView.setTextColor(palette.ink);
+        labelView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
+        row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        PixelToggle toggle = new PixelToggle(getContext(), metrics);
+        toggle.setPalette(palette);
+        toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener(v -> {
+            onChange.accept(v);
+            onWallpaperOverrideChanged.run();
+        });
+        row.addView(toggle);
 
         return row;
     }
