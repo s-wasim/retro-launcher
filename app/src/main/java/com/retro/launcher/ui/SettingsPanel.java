@@ -75,6 +75,7 @@ public final class SettingsPanel extends FrameLayout {
     private final LinearLayout feedbackSection;
     private final LinearLayout dockSection;
     private final LinearLayout permSection;
+    private final LinearLayout wallpaperSection;
 
     private Runnable onPrefsChanged = () -> {};
     private Runnable onClose = () -> {};
@@ -123,6 +124,7 @@ public final class SettingsPanel extends FrameLayout {
         content.addView(feedbackSection = section());
         content.addView(dockSection = section());
         content.addView(permSection = section());
+        content.addView(wallpaperSection = section());
 
         scroll.addView(content, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
@@ -264,6 +266,7 @@ public final class SettingsPanel extends FrameLayout {
         rebuildFeedbackSection();
         rebuildDockSection();
         rebuildPermissionsSection();
+        rebuildWallpaperSection();
     }
 
     // ---- PALETTE -----------------------------------------------------
@@ -548,6 +551,32 @@ public final class SettingsPanel extends FrameLayout {
     /** One toggle, and deliberately its own section rather than a row under
      *  another: haptics are the only thing in the launcher that the user
      *  feels rather than sees. */
+    // ---- WALLPAPER -----------------------------------------------------
+
+    /** V9 §7b: a manual override for every wallpaper input, for testing and
+     *  preview — off by default so real weather is what ships. */
+    private void rebuildWallpaperSection() {
+        wallpaperSection.removeAllViews();
+        if (palette == null) return;
+        wallpaperSection.addView(sectionHeader("WALLPAPER"));
+        wallpaperSection.addView(toggleRow("MANUAL WALLPAPER", prefs.manualWallpaper(), checked -> {
+            prefs.putBool(Prefs.K_WX_OVERRIDE, checked);
+            onPrefsChanged.run();
+        }));
+
+        TextView caption = new TextView(getContext());
+        caption.setText("WHEN ON, A WALLPAPER PANEL APPEARS AT THE TOP OF SCREEN TIME WITH "
+                + "SLIDERS FOR CLOUD COVER, PRECIPITATION, TEMPERATURE, TIME OF DAY AND MOON "
+                + "PHASE, PLUS THUNDER AND SNOW TOGGLES. THE SKY FOLLOWS THEM LIVE INSTEAD OF "
+                + "THE REAL READING.");
+        caption.setTypeface(Typeface.MONOSPACE);
+        caption.setTextColor(palette.a);
+        caption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
+        addTopMargin(caption, Math.round(metrics.cqw(3f)));
+        wallpaperSection.addView(caption);
+    }
+
     private void rebuildFeedbackSection() {
         feedbackSection.removeAllViews();
         if (palette == null) return;
