@@ -5,57 +5,49 @@ import static org.junit.Assert.*;
 
 public class LockRouteTest {
 
-    /** Shizuku avoids both the accessibility service (flagged by some
-     *  banking apps) and the device admin (costs the fingerprint), so it
-     *  outranks both when available. */
-    @Test public void shizukuIsPreferredWhenAllThreeAreAvailable() {
-        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, true, true));
-    }
-
-    @Test public void shizukuIsPreferredOverAccessibilityAlone() {
-        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, true, false));
-    }
-
-    @Test public void shizukuIsPreferredOverAdminAlone() {
-        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, false, true));
+    /** Shizuku avoids the accessibility service, which some banking apps
+     *  flag, so it outranks it when available. */
+    @Test public void shizukuIsPreferredWhenBothAreAvailable() {
+        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, true));
     }
 
     @Test public void shizukuAloneIsChosen() {
-        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, false, false));
+        assertEquals(LockRoute.SHIZUKU, LockRoute.choose(true, false));
     }
 
-    /** The bug the two-route version existed to prevent, still true without
-     *  Shizuku: the device admin locks through the framework, which forces
-     *  the next unlock to PIN and refuses the fingerprint. */
-    @Test public void prefersAccessibilityWhenBothRoutesAreAvailableAndShizukuIsNot() {
-        assertEquals(LockRoute.ACCESSIBILITY, LockRoute.choose(false, true, true));
+    @Test public void accessibilityIsTheFallback() {
+        assertEquals(LockRoute.ACCESSIBILITY, LockRoute.choose(false, true));
     }
 
-    @Test public void fallsBackToTheAdminWhenNeitherShizukuNorAccessibilityIsOn() {
-        assertEquals(LockRoute.ADMIN, LockRoute.choose(false, false, true));
+    @Test public void reportsNoneWhenNeitherIsSetUp() {
+        assertEquals(LockRoute.NONE, LockRoute.choose(false, false));
     }
 
-    @Test public void usesAccessibilityWhenTheAdminIsNotActive() {
-        assertEquals(LockRoute.ACCESSIBILITY, LockRoute.choose(false, true, false));
+    @Test public void statusWordsSeparateTheTwoWorkingRoutesFromNone() {
+        assertEquals("ON",     LockRoute.SHIZUKU.status());
+        assertEquals("ON",     LockRoute.ACCESSIBILITY.status());
+        assertEquals("ENABLE", LockRoute.NONE.status());
     }
 
-    @Test public void reportsNoneWhenNoneIsSetUp() {
-        assertEquals(LockRoute.NONE, LockRoute.choose(false, false, false));
-    }
-
-    @Test public void statusWordsSeparateTheThreeWorkingRoutes() {
-        assertEquals("ON",       LockRoute.SHIZUKU.status());
-        assertEquals("ON",       LockRoute.ACCESSIBILITY.status());
-        assertEquals("PIN ONLY", LockRoute.ADMIN.status());
-        assertEquals("ENABLE",   LockRoute.NONE.status());
-    }
-
-    /** Shizuku costs nothing extra to unlock again, same as accessibility —
-     *  only the admin route is unsettled business. */
-    @Test public void shizukuAndAccessibilityAreBothSettled() {
+    /** Both surviving routes leave the fingerprint working, so both are
+     *  finished business; only NONE still has something for the user to do. */
+    @Test public void bothWorkingRoutesAreSettled() {
         assertTrue(LockRoute.SHIZUKU.settled());
         assertTrue(LockRoute.ACCESSIBILITY.settled());
-        assertFalse(LockRoute.ADMIN.settled());
         assertFalse(LockRoute.NONE.settled());
+    }
+
+    /**
+     * V9 §10. The admin route locked, but through {@code lockNow()}, which
+     * raises the strong-auth flag and makes Android demand the PIN instead of
+     * the fingerprint on the next unlock — and activating a device admin is
+     * the largest trust signal the app asked for. It is gone, and this asserts
+     * it stays gone rather than quietly returning under another name.
+     */
+    @Test public void onlyTwoRoutesAndAFallbackRemain() {
+        assertEquals(3, LockRoute.values().length);
+        for (LockRoute route : LockRoute.values()) {
+            assertNotEquals("ADMIN", route.name());
+        }
     }
 }

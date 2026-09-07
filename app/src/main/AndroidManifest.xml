@@ -52,12 +52,14 @@
         <package android:name="com.accuweather.android" />
     </queries>
 
-    <!-- Exactly three, per HANDOFF.md §0 row 1, plus the one below added for
-         the status-bar swipe (DESIGN_NOTES §9 delta 21). Home-screen lock
-         needs no uses-permission — see the LockAdminReceiver declaration
-         below (DESIGN_NOTES §9 delta 19). -->
+    <!-- Home-screen lock needs no uses-permission: it goes through the
+         accessibility service below, or through Shizuku. V9 §10 dropped
+         SYSTEM_ALERT_WINDOW from this list — it was declared for an overlay
+         lock route that Shizuku superseded and that was never built, so there
+         is no TYPE_APPLICATION_OVERLAY anywhere in the source and the
+         permission bought a "display over other apps" trust prompt for
+         nothing. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- The weather fetch already sends exact coordinates; with only COARSE
          the platform hands us a fix rounded to roughly a city block, and the
@@ -131,29 +133,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Long-press-home-to-lock: an inert admin that requests no
-             policies beyond what any active admin already gets — see
-             DESIGN_NOTES §9 delta 19. android:permission is what makes this
-             a device-admin receiver; only the system can invoke it. -->
-        <receiver
-            android:name=".admin.LockAdminReceiver"
-            android:exported="true"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
-
         <!-- Opt-in, and the route for two gestures: swipe-down-opens-the-shade
-             and long-press-locks-the-screen. Off until the user enables it in
-             Accessibility settings; the shade swipe is a silent no-op until
-             then and the long press falls back to the device admin. Reads
-             nothing — see ShadeService's javadoc and DESIGN_NOTES §9 deltas 21
-             and 25. android:permission is what makes this an accessibility
-             service; only the system can bind it. -->
+             and double-tap-locks-the-screen (V9 §8 moved the lock off the long
+             press). Off until the user enables it in Accessibility settings;
+             the shade swipe is a silent no-op until then, and since V9 §10
+             removed the device admin the lock has no fallback beneath this
+             one but Shizuku. Reads nothing — see ShadeService's javadoc and
+             DESIGN_NOTES §9 deltas 21 and 25. android:permission is what makes
+             this an accessibility service; only the system can bind it. -->
         <service
             android:name=".shade.ShadeService"
             android:exported="true"

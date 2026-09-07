@@ -25,7 +25,16 @@ import java.util.List;
  *   <tr><td>Updated system app</td><td>{@code UNINSTALL_UPDATES}, {@code DISABLE}</td></tr>
  *   <tr><td>Preinstalled, not updated</td><td>{@code DISABLE}</td></tr>
  *   <tr><td>This launcher</td><td>none</td></tr>
+ *   <tr><td>An OEM clone (V9 §11)</td><td>none</td></tr>
  * </table>
+ *
+ * <p>The clone row is there for the same reason as the rest of this class:
+ * an honest row only. A clone lives in another user profile, and every
+ * removal intent a launcher can fire is scoped to its own — so UNINSTALL on
+ * a clone would not remove the clone, it would offer to remove the original
+ * app the user still wants. Neither the platform nor this app has a way to
+ * remove a clone; the OEM's own Dual Apps settings screen does, and that is
+ * not somewhere a launcher can deep-link to portably.
  *
  * <p>{@link Action#LAUNCH} and {@link Action#APP_INFO} are offered for every
  * app including this one; the table governs the removal rows only.
@@ -71,9 +80,20 @@ public final class AppActionPolicy {
      * @return a fresh mutable list; the caller may do as it likes with it
      */
     public static List<Action> actionsFor(boolean system, boolean updatedSystem, boolean self) {
+        return actionsFor(system, updatedSystem, self, false);
+    }
+
+    /**
+     * As above, plus V9 §11's clone case.
+     *
+     * @param clone the row is an OEM clone in a secondary user profile, whose
+     *              removal no launcher-issued intent can reach
+     */
+    public static List<Action> actionsFor(boolean system, boolean updatedSystem,
+                                          boolean self, boolean clone) {
         List<Action> out = new ArrayList<>(4);
         out.add(Action.LAUNCH);
-        if (!self) {
+        if (!self && !clone) {
             // The update flag decides first: an updated system app is still a
             // system app, so testing FLAG_SYSTEM ahead of it would offer only
             // DISABLE and hide the rollback the user actually wants.
@@ -92,8 +112,14 @@ public final class AppActionPolicy {
 
     /** The labels for {@link #actionsFor}, in the same order. */
     public static List<String> labelsFor(boolean system, boolean updatedSystem, boolean self) {
+        return labelsFor(system, updatedSystem, self, false);
+    }
+
+    /** The labels for {@link #actionsFor(boolean, boolean, boolean, boolean)}. */
+    public static List<String> labelsFor(boolean system, boolean updatedSystem,
+                                         boolean self, boolean clone) {
         List<String> out = new ArrayList<>(4);
-        for (Action a : actionsFor(system, updatedSystem, self)) out.add(a.label());
+        for (Action a : actionsFor(system, updatedSystem, self, clone)) out.add(a.label());
         return Collections.unmodifiableList(out);
     }
 }

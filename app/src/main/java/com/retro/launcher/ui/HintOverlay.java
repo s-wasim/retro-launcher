@@ -37,7 +37,7 @@ public final class HintOverlay extends FrameLayout {
         // the two non-swipe ones included.
         String[] lines = {"SWIPE TO MOVE", "→ SETTINGS", "← APP DRAWER",
                 "↑ SCREEN TIME", "↓ NOTIFICATIONS",
-                "DOUBLE-TAP TO SEARCH", "LONG-PRESS TO LOCK"};
+                "LONG-PRESS TO SEARCH", "DOUBLE-TAP TO LOCK"};
         for (String line : lines) {
             TextView t = new TextView(context);
             t.setText(line);

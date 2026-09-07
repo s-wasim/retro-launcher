@@ -2,19 +2,15 @@ package com.retro.launcher;
 
 import android.app.Activity;
 import android.app.AppOpsManager;
-import android.app.admin.DeviceAdminInfo;
-import android.app.admin.DevicePolicyManager;
 import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -27,7 +23,7 @@ import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 
-import com.retro.launcher.admin.LockAdminReceiver;
+import com.retro.launcher.core.ComponentKey;
 import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
@@ -84,8 +80,6 @@ public class HomeActivity extends Activity {
     private WeatherRepository weatherRepository;
     private UsageRepository usageRepository;
     private Palette palette;
-    private DevicePolicyManager dpm;
-    private ComponentName lockAdmin;
     /** API 33+ only; null below that, where onBackPressed still runs. */
     private OnBackInvokedCallback backCallback;
 
@@ -116,12 +110,10 @@ public class HomeActivity extends Activity {
         haptics = new Haptics(this, prefs.haptics());
         weatherRepository = new WeatherRepository(this, prefs);
         usageRepository = new UsageRepository(this);
-        dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
-        lockAdmin = new ComponentName(this, LockAdminReceiver.class);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
-        appRepository = new AppRepository(getPackageManager(), prefs);
+        appRepository = new AppRepository(this, getPackageManager(), prefs);
         IconCache iconCache = new IconCache();
         IconSource icons = new InstrumentedIconSource(
                 new PixelArtIcons(getPackageManager(), iconCache), "pixart");
@@ -156,7 +148,6 @@ public class HomeActivity extends Activity {
             @Override public void onEnableDeviceLock() { requestLockCapability(); }
             @Override public void onSetDefaultLauncher() { requestDefaultLauncher(); }
             @Override public void onEnableNotificationShade() { openAccessibilitySettings(); }
-            @Override public void onEnableOverlay() { openOverlaySettings(); }
             @Override public void onEnableShizukuLock() { enableShizukuLock(); }
         });
 
@@ -182,11 +173,14 @@ public class HomeActivity extends Activity {
         root.setPanels(home, settings, drawer, screenTime);
 
         search = new SearchOverlay(this, metrics, appRepository);
-        root.setDoubleTapListener(() -> {
+        // V9 §8: long-press searches, double-tap locks. The gesture that
+        // takes the phone off the screen is the harder one to fire by
+        // accident, which is why the destructive-feeling one is the tap.
+        root.setLongPressListener(() -> {
             search.setPalette(palette);
             search.open();
         });
-        root.setLongPressListener(this::lockDevice);
+        root.setDoubleTapListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
 
         home.dock.setHaptics(haptics);
@@ -290,8 +284,7 @@ public class HomeActivity extends Activity {
      *  the drawer's MORE DETAILS row, reached without a drawer row to hang
      *  an {@link AppEntry} off. */
     private void openAppInfo(String component) {
-        int slash = component.indexOf('/');
-        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        String pkg = ComponentKey.packageOf(component);
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 android.net.Uri.fromParts("package", pkg, null));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -324,7 +317,11 @@ public class HomeActivity extends Activity {
             if (app.diagnostic) continue;
             String component = app.component();
             boolean inDock = current.contains(component);
-            sheet.addRow(app.label, inDock, "IN DOCK", () -> {
+            // A clone and the app it clones carry the same label exactly, so
+            // without the badge (V9 §11) this picker would show two rows the
+            // user cannot tell apart.
+            sheet.addRow(app.isClone() ? app.label + " \u2605" : app.label,
+                    inDock, "IN DOCK", () -> {
                 List<String> next = new ArrayList<>(home.dock.entries());
                 if (slotIndex >= 0 && slotIndex < next.size()) {
                     next.set(slotIndex, component);
@@ -460,7 +457,6 @@ public class HomeActivity extends Activity {
         settings.setDeviceLockStatus(lockRoute());
         settings.setNotificationShadeStatus(ShadeService.isEnabled(this));
         settings.setShizukuLockStatus(prefs.shizukuLockEnabled(), ShizukuLock.hasPermission());
-        settings.setOverlayStatus(hasOverlayPermission());
 
         boolean defaultLauncher = isDefaultLauncher();
         settings.setDefaultLauncherStatus(defaultLauncher);
@@ -476,58 +472,33 @@ public class HomeActivity extends Activity {
                 android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
     }
 
-    /**
-     * True only when the admin can actually lock: it is active *and* it holds
-     * {@code USES_POLICY_FORCE_LOCK}. The fallback route only — see
-     * {@link #lockDevice()} for why it is not the first choice.
-     *
-     * <p>Both halves matter. {@code lockNow()} throws SecurityException for an
-     * active admin that never declared force-lock, which is precisely how the
-     * previous build crashed — {@code device_admin.xml} shipped an empty
-     * {@code <uses-policies/>}. Anyone who activated that admin still has it
-     * active after the update, so "active" alone is not enough to trust.
-     */
-    private boolean canLockViaAdmin() {
-        return dpm.isAdminActive(lockAdmin)
-                && dpm.hasGrantedPolicy(lockAdmin, DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
-    }
-
-    /** Which of the three lock routes is available right now — see
+    /** Which of the two lock routes is available right now — see
      *  {@link LockRoute} for why the order matters. */
     private LockRoute lockRoute() {
         return LockRoute.choose(
                 ShizukuLock.isAvailable(prefs.shizukuLockEnabled()),
-                ShadeService.canLockScreen(this),
-                canLockViaAdmin());
+                ShadeService.canLockScreen(this));
     }
 
     /**
-     * Long-press-home-to-lock (DESIGN_NOTES §9 deltas 19 and 25).
+     * Double-tap-home-to-lock (DESIGN_NOTES §9 deltas 19 and 25; V9 §8 moved
+     * it off the long press, which now opens search).
      *
-     * <p>The accessibility global action first, because it is the only one of
-     * the two that leaves the fingerprint reader working: a device-admin
-     * {@code lockNow()} raises the strong-auth-required flag and Android then
-     * demands the PIN on the next unlock. That is why long-pressing used to
-     * lock people out of their own fingerprint.
+     * <p>Shizuku first, then the accessibility global action. Both are the
+     * power button by another name and leave the fingerprint reader working.
+     * The device-admin {@code lockNow()} that used to sit underneath them is
+     * gone in V9 §10: it raised the strong-auth-required flag, so Android
+     * demanded the PIN on the next unlock — it locked people out of their own
+     * fingerprint — and it cost an activated device admin to do it.
      *
-     * <p>{@code lockNow()} stays as the fallback — on API 26–27 there is no
-     * global action to call, and until the service is switched on it is this
-     * or nothing. Routes are re-read on every {@link #onResume()}, same as the
-     * other permission-adjacent flows in this activity.
+     * <p>With neither route set up there is nothing to call, so the tap sends
+     * the user somewhere they can fix that rather than doing nothing. Routes
+     * are re-read on every {@link #onResume()}, same as the other
+     * permission-adjacent flows in this activity.
      */
     private void lockDevice() {
         if (ShizukuLock.isAvailable(prefs.shizukuLockEnabled()) && ShizukuLock.lock()) return;
         if (ShadeService.lockScreen()) return;
-        if (canLockViaAdmin()) {
-            try {
-                dpm.lockNow();
-                return;
-            } catch (SecurityException ignored) {
-                // The policy set disagrees with what the framework will honour
-                // (an OEM restriction, a stale grant across the update that
-                // added force-lock). Fall through and re-ask rather than die.
-            }
-        }
         requestLockCapability();
     }
 
@@ -545,26 +516,17 @@ public class HomeActivity extends Activity {
      * Sets up a lock route, without locking — this is what the DEVICE LOCK row
      * in Settings calls, where locking the phone on a tap would be a surprise.
      *
-     * <p>On API 28+ it always points at Accessibility settings, including for
-     * someone already on the admin route: that is the upgrade from "PIN ONLY"
-     * to a lock the fingerprint can undo, and it is the only route worth
-     * adding on a modern Android. Below 28 the admin dialog is the only thing
-     * there is.
+     * <p>Accessibility settings, on every version. On API 28+ that is where
+     * the global-action route is switched on. Below 28 there is no global
+     * action to switch on and Shizuku is the only lock route the device has,
+     * but the same screen still enables the shade swipe, and sending someone
+     * to a device-admin activation dialog instead — which is what happened
+     * here before V9 §10 — would hand back a lock that refuses the
+     * fingerprint. The SHIZUKU LOCK row directly below is the other half of
+     * the answer, and the caption says so.
      */
     private void requestLockCapability() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            openAccessibilitySettings();
-            return;
-        }
-        Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-        intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, lockAdmin);
-        intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "Lets long-pressing the home screen lock your device instantly.");
-        try {
-            startActivity(intent);
-        } catch (ActivityNotFoundException ignored) {
-            // No admin-activation screen to resolve it — nothing else we can do.
-        }
+        openAccessibilitySettings();
     }
 
     /** DESIGN_NOTES §9 delta 20: RoleManager on 29+, a PackageManager
@@ -624,20 +586,6 @@ public class HomeActivity extends Activity {
      *  fallback — see {@link ShadeService}. */
     private void openAccessibilitySettings() {
         startSafely(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-    }
-
-    /** Whether the launcher currently holds the "draw over other apps"
-     *  special-access permission. */
-    private boolean hasOverlayPermission() {
-        return Settings.canDrawOverlays(this);
-    }
-
-    /** Sends the user to the system's "draw over other apps" settings screen
-     *  for this app — SYSTEM_ALERT_WINDOW is special access, not a runtime
-     *  permission, so there is no requestPermissions() path for it. */
-    private void openOverlaySettings() {
-        startSafely(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName())));
     }
 
     /**

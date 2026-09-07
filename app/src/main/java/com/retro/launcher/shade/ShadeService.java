@@ -89,12 +89,13 @@ public final class ShadeService extends AccessibilityService {
      * Locks the screen the way the power button does, leaving the fingerprint
      * reader able to unlock. Returns false when the service is off, the
      * platform is too old for the action, or the framework refuses it, so the
-     * caller can fall back to the device admin.
+     * caller can send the user off to set a route up instead.
      *
-     * <p>This exists because the device-admin route cannot do it. A
-     * {@code DevicePolicyManager#lockNow()} raises the strong-auth-required
-     * flag on the user, and Android then rejects every biometric until a PIN,
-     * pattern or password has been entered — see {@link LockRoute}.
+     * <p>This exists because the device-admin route it replaced could not do
+     * it. A {@code DevicePolicyManager#lockNow()} raises the
+     * strong-auth-required flag on the user, and Android then rejects every
+     * biometric until a PIN, pattern or password has been entered. V9 §10
+     * removed that route outright — see {@link LockRoute}.
      */
     public static boolean lockScreen() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;

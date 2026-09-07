@@ -1,9 +1,12 @@
 package com.retro.launcher.util;
 
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
+import android.os.UserHandle;
 import android.util.Log;
 
 /**
@@ -65,6 +68,37 @@ public final class Launch {
             if (i != null) return i;
         }
         return null;
+    }
+
+    /**
+     * Starts a launcher activity in a specific user profile (V9 §11).
+     *
+     * <p>This exists because {@code startActivity} cannot cross a profile
+     * boundary: handed a clone's component it throws
+     * {@code SecurityException}, or on some builds resolves nothing and dies
+     * quietly — either way it fails for exactly the apps §11 makes visible.
+     * {@link LauncherApps#startMainActivity} is the call that can cross, and
+     * it needs no permission to do it.
+     *
+     * @param user null for our own profile, where the ordinary intent path is
+     *             both sufficient and cheaper
+     * @return true if something started
+     */
+    public static boolean mainActivity(Context ctx, ComponentName component, UserHandle user) {
+        if (user == null) return false;
+        try {
+            LauncherApps launcher =
+                    (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (launcher == null) return false;
+            launcher.startMainActivity(component, user, null, null);
+            return true;
+        } catch (Exception e) {
+            // The profile was removed or turned off since the drawer loaded,
+            // or the ROM refuses the call. The caller's intent chain is next.
+            Log.d(TAG, "cross-profile start refused for " + component.flattenToShortString()
+                    + " (" + e.getClass().getSimpleName() + ")");
+            return false;
+        }
     }
 
     private static String describe(Intent i) {

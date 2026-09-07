@@ -189,7 +189,8 @@ public final class SearchOverlay extends FrameLayout {
             results.addView(caption("NO APPS MATCH"));
         } else {
             for (AppEntry app : matches) {
-                results.addView(row(app.label, () -> { launch(app); close(); }));
+                results.addView(row(DrawerPanel.cloneMarked(app, palette),
+                        () -> { launch(app); close(); }));
             }
         }
 
@@ -234,10 +235,13 @@ public final class SearchOverlay extends FrameLayout {
     // ---- actions ---------------------------------------------------------
 
     private void launch(AppEntry app) {
-        Intent intent = new Intent(Intent.ACTION_MAIN)
+        ComponentName component = new ComponentName(app.packageName, app.activityName);
+        // A clone lives in another user profile and no intent can cross into
+        // it — see Launch.mainActivity. Null handle means our own profile.
+        if (app.user != null && Launch.mainActivity(getContext(), component, app.user)) return;
+        Launch.first(getContext(), new Intent(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
-                .setComponent(new ComponentName(app.packageName, app.activityName));
-        Launch.first(getContext(), intent);
+                .setComponent(component));
     }
 
     private void web(String query) {
@@ -280,7 +284,7 @@ public final class SearchOverlay extends FrameLayout {
         return v;
     }
 
-    private TextView row(String text, Runnable onTap) {
+    private TextView row(CharSequence text, Runnable onTap) {
         TextView r = new TextView(getContext());
         r.setText(text);
         r.setTypeface(Typeface.MONOSPACE);
