@@ -43,6 +43,14 @@ public final class AppActions {
     public static boolean perform(Context ctx, AppActionPolicy.Action action, AppEntry app) {
         switch (action) {
             case LAUNCH:
+                // A clone lives in another user profile, and no intent this
+                // process can build will cross into it — see
+                // Launch.mainActivity. For our own profile the handle is null
+                // and this falls straight through to the intent chain.
+                if (app.user != null
+                        && Launch.mainActivity(ctx, componentName(app), app.user)) {
+                    return true;
+                }
                 return Launch.first(ctx, launchIntent(app),
                         Launch.packageLauncher(ctx, app.packageName));
             case UNINSTALL:
@@ -63,11 +71,15 @@ public final class AppActions {
         }
     }
 
+    private static ComponentName componentName(AppEntry app) {
+        return new ComponentName(app.packageName, app.activityName);
+    }
+
     private static Intent launchIntent(AppEntry app) {
         if (app.activityName == null || app.activityName.isEmpty()) return null;
         return new Intent(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
-                .setComponent(new ComponentName(app.packageName, app.activityName));
+                .setComponent(componentName(app));
     }
 
     private static Intent deleteIntent(AppEntry app) {

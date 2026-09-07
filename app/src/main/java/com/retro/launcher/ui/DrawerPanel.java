@@ -2,6 +2,9 @@ package com.retro.launcher.ui;
 
 import android.content.Context;
 import android.graphics.Typeface;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -381,7 +384,8 @@ public final class DrawerPanel extends FrameLayout {
                 AnchoredPopup.window(box, popupWidth, metrics.cqw(1f));
 
         for (AppActionPolicy.Action action : AppActionPolicy.actionsFor(
-                app.systemApp, app.updatedSystemApp, AppActions.isSelf(getContext(), app))) {
+                app.systemApp, app.updatedSystemApp,
+                AppActions.isSelf(getContext(), app), app.isClone())) {
             box.addView(actionRow(action.label(), padH, padV, () -> {
                 popup.dismiss();
                 if (action == AppActionPolicy.Action.LAUNCH) launch(app);
@@ -573,7 +577,7 @@ public final class DrawerPanel extends FrameLayout {
                 caption.setText("");
             } else {
                 icon.setImageBitmap(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
-                label.setText(app.label);
+                label.setText(cloneMarked(app, palette));
                 caption.setText(app.categories.isEmpty()
                         ? "UNSORTED"
                         : String.join(" · ", app.categories));
@@ -588,5 +592,26 @@ public final class DrawerPanel extends FrameLayout {
 
     private static int withAlpha(int color, int alpha) {
         return (alpha << 24) | (color & 0x00FFFFFF);
+    }
+
+    /**
+     * The clone badge (V9 §11): a trailing star in the accent colour, so it
+     * reads as a mark on the row rather than part of the app's name.
+     *
+     * <p>Applied here, at the view layer, and never baked into
+     * {@code AppEntry.label} — the label is what {@code AppSearch} matches
+     * against and what a category assignment is keyed on, and appending to it
+     * would make a clone unsearchable by its own name and split its category
+     * membership from the original's.
+     */
+    static CharSequence cloneMarked(AppEntry app, Palette palette) {
+        if (!app.isClone()) return app.label;
+        SpannableString marked = new SpannableString(app.label + " \u2605");
+        if (palette != null) {
+            marked.setSpan(new ForegroundColorSpan(palette.a),
+                    marked.length() - 1, marked.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return marked;
     }
 }

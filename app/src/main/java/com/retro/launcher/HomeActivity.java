@@ -23,6 +23,7 @@ import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 
+import com.retro.launcher.core.ComponentKey;
 import com.retro.launcher.core.LockRoute;
 import com.retro.launcher.core.Metrics;
 import com.retro.launcher.core.Palette;
@@ -112,7 +113,7 @@ public class HomeActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
-        appRepository = new AppRepository(getPackageManager(), prefs);
+        appRepository = new AppRepository(this, getPackageManager(), prefs);
         IconCache iconCache = new IconCache();
         IconSource icons = new InstrumentedIconSource(
                 new PixelArtIcons(getPackageManager(), iconCache), "pixart");
@@ -283,8 +284,7 @@ public class HomeActivity extends Activity {
      *  the drawer's MORE DETAILS row, reached without a drawer row to hang
      *  an {@link AppEntry} off. */
     private void openAppInfo(String component) {
-        int slash = component.indexOf('/');
-        String pkg = slash >= 0 ? component.substring(0, slash) : component;
+        String pkg = ComponentKey.packageOf(component);
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 android.net.Uri.fromParts("package", pkg, null));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -317,7 +317,11 @@ public class HomeActivity extends Activity {
             if (app.diagnostic) continue;
             String component = app.component();
             boolean inDock = current.contains(component);
-            sheet.addRow(app.label, inDock, "IN DOCK", () -> {
+            // A clone and the app it clones carry the same label exactly, so
+            // without the badge (V9 §11) this picker would show two rows the
+            // user cannot tell apart.
+            sheet.addRow(app.isClone() ? app.label + " \u2605" : app.label,
+                    inDock, "IN DOCK", () -> {
                 List<String> next = new ArrayList<>(home.dock.entries());
                 if (slotIndex >= 0 && slotIndex < next.size()) {
                     next.set(slotIndex, component);
