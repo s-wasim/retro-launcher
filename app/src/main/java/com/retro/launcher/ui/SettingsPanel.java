@@ -19,6 +19,8 @@ import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PaletteResolver;
 import com.retro.launcher.core.Palettes;
 import com.retro.launcher.core.Weather;
+import com.retro.launcher.core.ZoneLabel;
+import com.retro.launcher.core.ZoneList;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.theme.Tint;
 import com.retro.launcher.util.Haptics;
@@ -373,6 +375,41 @@ public final class SettingsPanel extends FrameLayout {
         addTopMargin(hourRow, gap);
         clockSection.addView(hourRow);
 
+        // 2.2.1 — the second time zone. Under the hour format because it is a
+        // property of the clock face, and above the date presets so the two
+        // clock rows stay together.
+        LinearLayout zoneToggle = toggleRow("SECOND TIME ZONE", prefs.secondZoneEnabled(),
+                checked -> {
+                    prefs.setSecondZoneEnabled(checked);
+                    onPrefsChanged.run();
+                    rebuildClockSection();
+                });
+        addTopMargin(zoneToggle, gap);
+        clockSection.addView(zoneToggle);
+
+        if (prefs.secondZoneEnabled()) {
+            List<String> zones = prefs.secondZones();
+            String summary = zones.isEmpty()
+                    ? "NONE SAVED"
+                    : ZoneLabel.of(zones.get(ZoneList.clamp(prefs.secondZoneIndex(), zones.size())))
+                            + (zones.size() > 1 ? "  +" + (zones.size() - 1) + " MORE" : "");
+            View zonesRow = actionRow("ZONES", summary, () -> {
+                if (onManageZones != null) onManageZones.run();
+            });
+            addTopMargin(zonesRow, gap);
+            clockSection.addView(zonesRow);
+
+            TextView hint = new TextView(getContext());
+            hint.setText("TAP THE SECOND CLOCK LINE TO CYCLE SAVED ZONES, "
+                    + "OR LONG-PRESS IT TO OPEN THIS PICKER.");
+            hint.setTypeface(Typeface.MONOSPACE);
+            hint.setTextColor(palette.a);
+            hint.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                    metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
+            addTopMargin(hint, Math.round(metrics.cqw(2f)));
+            clockSection.addView(hint);
+        }
+
         Calendar now = Calendar.getInstance();
         int fmtIdx = prefs.fmtIdx();
         for (int i = 0; i < DateFormatter.PRESETS.length; i++) {
@@ -391,6 +428,43 @@ public final class SettingsPanel extends FrameLayout {
             addTopMargin(builder, gap);
             clockSection.addView(builder);
         }
+    }
+
+    /** Opens the zone picker. Null until HomeActivity supplies one, the same
+     *  way every other cross-panel action here is wired. */
+    private Runnable onManageZones;
+
+    public void setOnManageZones(Runnable r) { this.onManageZones = r; }
+
+    /** A label on the left, the current value on the right in the accent, and
+     *  the whole row tappable — the same shape as the dock rows below. */
+    private View actionRow(String label, String value, Runnable onTap) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int padV = Math.round(metrics.cqw(1.5f));
+        row.setPadding(0, padV, 0, padV);
+        row.setOnClickListener(v -> { tick(); onTap.run(); });
+
+        TextView left = new TextView(getContext());
+        left.setText(label);
+        left.setTypeface(Typeface.MONOSPACE);
+        left.setAllCaps(true);
+        left.setTextColor(palette.ink);
+        left.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_ROW_CQW, DrawerPanel.SIZE_ROW_MIN));
+        row.addView(left, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView right = new TextView(getContext());
+        right.setText(value);
+        right.setTypeface(Typeface.MONOSPACE);
+        right.setAllCaps(true);
+        right.setTextColor(palette.a);
+        right.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                metrics.textPx(DrawerPanel.SIZE_CAPTION_CQW, DrawerPanel.SIZE_CAPTION_MIN));
+        row.addView(right);
+        return row;
     }
 
     private View formatRow(String left, String pattern, boolean selected, Calendar now, int idx) {

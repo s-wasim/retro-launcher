@@ -19,6 +19,49 @@
         android:textSize="34sp"
         android:text="00:00" />
 
+    <!-- 2.2.1. The second time zone, directly under the local time so the two
+         read as one clock block rather than as a clock and a separate fact.
+         GONE until a zone is saved and the toggle is on. -->
+    <LinearLayout
+        android:id="@+id/clock_zone_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/clock_zone_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.14"
+            android:textAllCaps="true"
+            android:textSize="13sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/clock_zone_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/clock_zone_day"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:text="" />
+
+    </LinearLayout>
+
     <TextView
         android:id="@+id/clock_date"
         android:layout_width="wrap_content"

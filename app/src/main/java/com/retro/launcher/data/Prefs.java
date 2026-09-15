@@ -41,6 +41,16 @@ public final class Prefs {
     public static final String K_HAPTIC  = "haptics";
     public static final String K_SHIZUKU = "shizukuLock";
 
+    // 2.2.1. The second time zone: whether the extra clock line shows at all,
+    // the saved shortlist (newline-joined IANA ids, same shape as K_DOCK), and
+    // which of them is currently on screen. The index is stored rather than
+    // the id so that removing a zone cannot leave the clock pointing at
+    // something the list no longer contains — ZoneList.clamp resolves a stale
+    // index into range instead.
+    public static final String K_TZ2_ON   = "tz2On";
+    public static final String K_TZ2_LIST = "tz2List";
+    public static final String K_TZ2_IDX  = "tz2Idx";
+
     // Tier 5. The last good weather reading and the fix it was taken at, so a
     // cold start shows yesterday's number instead of "--°" while the first
     // fetch is still in flight.
@@ -103,6 +113,30 @@ public final class Prefs {
     /** Default off: a second app to install and a pairing that must be
      *  redone after every reboot is a real cost, so the user opts in. */
     public boolean shizukuLockEnabled() { return sp.getBoolean(K_SHIZUKU, false); }
+
+    /** 2.2.1. Off by default: a launcher that shows two clocks to someone who
+     *  only asked for one is the surprising default, and the row that turns it
+     *  on sits in Settings under CLOCK &amp; DATE. */
+    public boolean secondZoneEnabled() { return sp.getBoolean(K_TZ2_ON, false); }
+
+    public void setSecondZoneEnabled(boolean on) { putBool(K_TZ2_ON, on); }
+
+    /** The saved shortlist, already deduplicated and capped by
+     *  {@link com.retro.launcher.core.ZoneList}. */
+    public List<String> secondZones() {
+        return com.retro.launcher.core.ZoneList.parse(sp.getString(K_TZ2_LIST, ""));
+    }
+
+    public void setSecondZones(List<String> zones) {
+        putString(K_TZ2_LIST, com.retro.launcher.core.ZoneList.format(zones));
+    }
+
+    /** Which saved zone the clock is showing. Always read back through
+     *  {@code ZoneList.clamp} against the current list size — the stored value
+     *  outlives the list it was an index into. */
+    public int secondZoneIndex() { return sp.getInt(K_TZ2_IDX, 0); }
+
+    public void setSecondZoneIndex(int index) { putInt(K_TZ2_IDX, index); }
 
     /** Dock is stored as a newline-joined component list, max 5. */
     public List<String> dock() {

@@ -52,6 +52,7 @@ import com.retro.launcher.ui.ScreenTimePanel;
 import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
+import com.retro.launcher.ui.TimeZonePicker;
 import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
@@ -74,6 +75,7 @@ public class HomeActivity extends Activity {
     private BottomSheet sheet;
     private SetupScreen setupScreen;
     private HintOverlay hintOverlay;
+    private TimeZonePicker zonePicker;
     private AppRepository appRepository;
     private Prefs prefs;
     private Metrics metrics;
@@ -238,6 +240,23 @@ public class HomeActivity extends Activity {
 
         root.setPanels(home, settings, drawer, screenTime);
 
+        // 2.2.1. Android exposes no way to read the clock app's world-clock
+        // cities, so the launcher keeps its own shortlist — see
+        // TimeZonePicker's class note for why that is not a shortcut.
+        zonePicker = new TimeZonePicker(this, metrics, prefs);
+        zonePicker.setOnZonesChanged(() -> {
+            refreshTime();
+            settings.setPalette(palette);   // redraws the ZONES summary row
+        });
+        settings.setOnManageZones(() -> {
+            zonePicker.setPalette(palette);
+            zonePicker.open();
+        });
+        home.clock.setOnZoneLongPress(() -> {
+            zonePicker.setPalette(palette);
+            zonePicker.open();
+        });
+
         search = new SearchOverlay(this, metrics, appRepository);
         // V9 §8: long-press searches, double-tap locks. The gesture that
         // takes the phone off the screen is the harder one to fire by
@@ -259,6 +278,7 @@ public class HomeActivity extends Activity {
         settings.setHaptics(haptics);
         sheet.setHaptics(haptics);
         search.setHaptics(haptics);
+        zonePicker.setHaptics(haptics);
         screenTime.setHaptics(haptics);
 
         home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
@@ -278,6 +298,7 @@ public class HomeActivity extends Activity {
         stack.addView(root);
         stack.addView(sheet);   // overlay, above every panel
         stack.addView(search);  // above the sheet: double-tap wins
+        stack.addView(zonePicker);
         stack.addView(setupScreen);
         stack.addView(hintOverlay);
         setContentView(stack);
@@ -840,7 +861,11 @@ public class HomeActivity extends Activity {
     }
 
     private void handleBack() {
-        if (search.isOpen()) {
+        // The zone picker is above the search overlay in the stack, so it is
+        // the first thing Back must dismiss.
+        if (zonePicker.isOpen()) {
+            zonePicker.close();
+        } else if (search.isOpen()) {
             search.close();
         } else if (sheet.isOpen()) {
             sheet.close();
