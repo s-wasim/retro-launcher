@@ -35,9 +35,9 @@ import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.data.WeatherRepository;
+import com.retro.launcher.icons.DiskIconCache;
 import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
-import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PixelArtIcons;
 import com.retro.launcher.lock.ShizukuLock;
 import com.retro.launcher.shade.ShadeService;
@@ -52,6 +52,7 @@ import com.retro.launcher.ui.ScreenTimePanel;
 import com.retro.launcher.ui.SearchOverlay;
 import com.retro.launcher.ui.SettingsPanel;
 import com.retro.launcher.ui.SetupScreen;
+import com.retro.launcher.ui.TimeZonePicker;
 import com.retro.launcher.util.Haptics;
 
 import java.util.ArrayList;
@@ -74,22 +75,64 @@ public class HomeActivity extends Activity {
     private BottomSheet sheet;
     private SetupScreen setupScreen;
     private HintOverlay hintOverlay;
+    private TimeZonePicker zonePicker;
     private AppRepository appRepository;
     private Prefs prefs;
     private Metrics metrics;
     private WeatherRepository weatherRepository;
     private UsageRepository usageRepository;
     private Palette palette;
+    private IconSource icons;
     /** API 33+ only; null below that, where onBackPressed still runs. */
     private OnBackInvokedCallback backCallback;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            // 2.1.3: the enumeration is cached, and this broadcast is the
+            // main thing that invalidates it.
+            if (appRepository != null) appRepository.invalidate();
             if (drawer != null) drawer.refresh();
         }
     };
 
+    /**
+     * The sky's render thread is stopped in {@link #onPause()}, which covers
+     * the ordinary lock — but a launcher is the activity most likely to be
+     * left resumed while the screen goes dark, and on some OEM builds it is
+     * not paused for a screen-off at all. This is the guarantee that the
+     * per-pixel renderer is never running against a screen nobody is looking
+     * at. {@code ACTION_SCREEN_OFF} and {@code ON} are protected system
+     * broadcasts and cannot be registered for in the manifest, so they are
+     * registered here alongside the package receiver.
+     */
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (sky == null) return;
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                sky.pause();
+            } else if (hasWindowFocus()) {
+                // Only resume if we are actually the thing on screen; the
+                // screen coming on over a lock screen or another app is not
+                // our cue to start rendering again. onResume covers that.
+                sky.resume();
+            }
+        }
+    };
+
     private final Handler ticker = new Handler(Looper.getMainLooper());
+
+    /**
+     * 2.1.3: rescheduled onto the next wall-clock minute rather than a flat
+     * 60 seconds from now.
+     *
+     * <p>The old fixed delay drifted by however long the tick itself took
+     * plus whatever the scheduler added, so the displayed minute flipped at
+     * an arbitrary offset into it and the drift grew all day — the clock
+     * could sit a full minute behind the one on the lock screen. Aligning
+     * costs nothing and fixes that. It also means one wake per minute at a
+     * predictable instant, which is the kind the scheduler can group with
+     * other work rather than waking the CPU on its own for.
+     */
     private final Runnable minuteTick = new Runnable() {
         @Override public void run() {
             refreshPalette();
@@ -98,9 +141,20 @@ public class HomeActivity extends Activity {
             // Cheap: the repository's own policy decides whether this minute
             // is one where a fetch is actually due.
             weatherRepository.refresh(false, HomeActivity.this::refreshTime);
-            ticker.postDelayed(this, 60_000L);
+            scheduleMinuteTick();
         }
     };
+
+    /** Posts {@link #minuteTick} for the start of the next minute. The +50ms
+     *  is so a scheduler that fires a hair early still reads the new minute
+     *  rather than re-rendering the old one and waiting another whole minute
+     *  to correct itself. */
+    private void scheduleMinuteTick() {
+        long now = System.currentTimeMillis();
+        long untilNextMinute = 60_000L - Math.floorMod(now, 60_000L);
+        ticker.removeCallbacks(minuteTick);
+        ticker.postDelayed(minuteTick, untilNextMinute + 50L);
+    }
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -114,9 +168,23 @@ public class HomeActivity extends Activity {
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
         appRepository = new AppRepository(this, getPackageManager(), prefs);
-        IconCache iconCache = new IconCache();
-        IconSource icons = new InstrumentedIconSource(
-                new PixelArtIcons(getPackageManager(), iconCache), "pixart");
+        // 2.1.2: the cache gained a disk tier under cacheDir, so the icon a
+        // cold start used to re-render for every installed app is read back
+        // instead. getCacheDir() can throw on a device whose storage is not
+        // mounted yet; the cache degrades to memory-only rather than taking
+        // the launcher down with it.
+        DiskIconCache diskIcons = null;
+        try {
+            diskIcons = new DiskIconCache(getCacheDir());
+        } catch (RuntimeException ignored) {
+        }
+        // Not wrapped in InstrumentedIconSource. That class's own javadoc says
+        // it is "never wired in a release build", but it was wired
+        // unconditionally — so every icon lookup, including the cache hits
+        // that are now the overwhelming majority, paid two System.nanoTime()
+        // calls and a running average it only ever logged. Kept in the tree
+        // for when a measurement is actually wanted; wrap this to use it.
+        icons = new PixelArtIcons(getResources(), getPackageManager(), new IconCache(diskIcons));
 
         sky = new SkyView(this);
 
@@ -172,6 +240,23 @@ public class HomeActivity extends Activity {
 
         root.setPanels(home, settings, drawer, screenTime);
 
+        // 2.2.1. Android exposes no way to read the clock app's world-clock
+        // cities, so the launcher keeps its own shortlist — see
+        // TimeZonePicker's class note for why that is not a shortcut.
+        zonePicker = new TimeZonePicker(this, metrics, prefs);
+        zonePicker.setOnZonesChanged(() -> {
+            refreshTime();
+            settings.setPalette(palette);   // redraws the ZONES summary row
+        });
+        settings.setOnManageZones(() -> {
+            zonePicker.setPalette(palette);
+            zonePicker.open();
+        });
+        home.clock.setOnZoneLongPress(() -> {
+            zonePicker.setPalette(palette);
+            zonePicker.open();
+        });
+
         search = new SearchOverlay(this, metrics, appRepository);
         // V9 §8: long-press searches, double-tap locks. The gesture that
         // takes the phone off the screen is the harder one to fire by
@@ -182,6 +267,10 @@ public class HomeActivity extends Activity {
         });
         root.setDoubleTapListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
+        // 2.1.3: throttle the wallpaper renderer while a settled panel is
+        // covering it. See LauncherRoot.SkyCoverListener for why this reports
+        // on settle rather than on the gesture.
+        root.setSkyCoverListener(covered -> sky.setObscured(covered));
 
         home.dock.setHaptics(haptics);
         home.clock.setHaptics(haptics);
@@ -189,6 +278,7 @@ public class HomeActivity extends Activity {
         settings.setHaptics(haptics);
         sheet.setHaptics(haptics);
         search.setHaptics(haptics);
+        zonePicker.setHaptics(haptics);
         screenTime.setHaptics(haptics);
 
         home.setOnRequestDefaultLauncherListener(this::requestDefaultLauncher);
@@ -208,6 +298,7 @@ public class HomeActivity extends Activity {
         stack.addView(root);
         stack.addView(sheet);   // overlay, above every panel
         stack.addView(search);  // above the sheet: double-tap wins
+        stack.addView(zonePicker);
         stack.addView(setupScreen);
         stack.addView(hintOverlay);
         setContentView(stack);
@@ -224,6 +315,7 @@ public class HomeActivity extends Activity {
         setupScreen.setVisibility(prefs.hintShown() ? View.GONE : View.VISIBLE);
 
         registerPackageReceiver();
+        registerScreenReceiver();
         registerBackCallback();
     }
 
@@ -240,6 +332,21 @@ public class HomeActivity extends Activity {
             registerReceiver(packageReceiver, packageChangeFilter(), RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(packageReceiver, packageChangeFilter());
+        }
+    }
+
+    /** {@code SCREEN_OFF}/{@code SCREEN_ON} are protected system broadcasts,
+     *  so like the package filter this needs no export flag; passing
+     *  {@code RECEIVER_NOT_EXPORTED} on API 33+ says so rather than relying on
+     *  the exemption. */
+    private void registerScreenReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(screenReceiver, filter);
         }
     }
 
@@ -652,13 +759,35 @@ public class HomeActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        ticker.post(minuteTick);
+        // Render the current minute immediately, then fall into step with the
+        // wall clock rather than 60 seconds from this instant.
+        refreshTime();
+        scheduleMinuteTick();
         sky.resume();
         drawer.refresh();
         refreshPermissionStatus();
         refreshUsage();
         refreshSkyLocation();
         weatherRepository.refresh(false, this::refreshTime);
+    }
+
+    /**
+     * The safety net under {@link #screenReceiver}'s {@code SCREEN_OFF} pause.
+     *
+     * <p>That pause is deliberately unconditional, because the case it exists
+     * for is a ROM that leaves the launcher resumed behind a dark screen. But
+     * an activity that was never paused is never resumed either, so on such a
+     * ROM {@code onResume} is not guaranteed to be the thing that starts the
+     * renderer again — and a wallpaper frozen until the next app switch is a
+     * worse bug than the one being fixed. Regaining focus always happens when
+     * the launcher becomes visible, whatever the OEM did with the lifecycle.
+     * {@code resume()} is idempotent, so the overlap with onResume costs
+     * nothing.
+     */
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (sky == null) return;
+        if (hasFocus) sky.resume(); else sky.pause();
     }
 
     @Override protected void onPause() {
@@ -670,9 +799,28 @@ public class HomeActivity extends Activity {
         root.endDragBuzz();
     }
 
+    /**
+     * 2.1.2. A launcher is the process the system most wants to keep resident
+     * and, being idle in the background most of the time, the one it will
+     * happily trim to get there. Handing the icon bitmaps back on request is
+     * how the launcher stays alive rather than being killed outright and
+     * cold-starting on the next Home press — which is the "always on" the
+     * caching work is really for.
+     *
+     * <p>Only the memory tier goes. Every byte of it is reconstructible from
+     * the disk tier for the price of a ~300-byte PNG decode, so this is close
+     * to free to undo, and dropping the files too would mean re-rendering
+     * every icon from PackageManager on the way back.
+     */
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_BACKGROUND && icons != null) icons.onTrimMemory();
+    }
+
     @Override protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(packageReceiver);
+        unregisterReceiver(screenReceiver);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         }
@@ -713,7 +861,11 @@ public class HomeActivity extends Activity {
     }
 
     private void handleBack() {
-        if (search.isOpen()) {
+        // The zone picker is above the search overlay in the stack, so it is
+        // the first thing Back must dismiss.
+        if (zonePicker.isOpen()) {
+            zonePicker.close();
+        } else if (search.isOpen()) {
             search.close();
         } else if (sheet.isOpen()) {
             sheet.close();

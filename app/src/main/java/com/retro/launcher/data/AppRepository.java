@@ -48,6 +48,23 @@ import java.util.Map;
  * <p>Some locked-down OEM builds restrict profile enumeration. Every failure
  * here falls back to the old {@code queryIntentActivities} path, because the
  * failure mode that matters is not "no clones" — it is an empty drawer.
+ *
+ * <p><b>2.1.3: the result is cached.</b> {@link #load()} is a Binder round
+ * trip per user profile, a {@code loadLabel} per activity — another Binder
+ * call each, and on a device with three hundred apps that is three hundred of
+ * them — a {@code Prefs} read, and a sort. It was being run from
+ * {@code DrawerPanel.refresh()} on <em>every</em> {@code onResume}, from
+ * {@code SearchOverlay.open()} on every long-press, and again to populate the
+ * dock picker, all on the UI thread, all returning the same list. Pressing
+ * Home therefore paid for a full re-enumeration before the drawer could
+ * settle.
+ *
+ * <p>The cache is held until something that could change the answer happens,
+ * and {@link #invalidate()} is the single door: a package installed or
+ * removed, or a category assignment edited. Nothing else can alter what this
+ * returns, so nothing else needs to drop it. Getting that wrong shows up as a
+ * newly installed app missing from the drawer, which is why the invalidation
+ * points are few and named.
  */
 public final class AppRepository {
 
@@ -55,13 +72,41 @@ public final class AppRepository {
     private final PackageManager pm;
     private final Prefs prefs;
 
+    /** The last enumeration, or null when it needs redoing. Unmodifiable, so
+     *  a caller that keeps the reference cannot edit the cache from under the
+     *  next one — {@code DrawerPanel} holds its result for the life of a
+     *  filter pass. */
+    private List<AppEntry> cached;
+
     public AppRepository(Context context, PackageManager pm, Prefs prefs) {
         this.context = context;
         this.pm = pm;
         this.prefs = prefs;
     }
 
+    /**
+     * Drops the cached enumeration so the next {@link #load()} rebuilds it.
+     *
+     * <p>Call this for anything that changes which apps exist or what
+     * categories they carry: the {@code PACKAGE_ADDED}/{@code REMOVED}
+     * broadcast, and a category assignment written through
+     * {@code Prefs.setMembership}. Cheap enough that an unnecessary call
+     * costs one re-enumeration, where a missing one costs a wrong drawer.
+     */
+    public void invalidate() { cached = null; }
+
+    /** The enumeration, from cache when one is valid. Always on the calling
+     *  thread — every caller is the UI thread and a cache hit is free. */
     public List<AppEntry> load() {
+        List<AppEntry> hit = cached;
+        if (hit != null) return hit;
+
+        List<AppEntry> fresh = Collections.unmodifiableList(enumerate());
+        cached = fresh;
+        return fresh;
+    }
+
+    private List<AppEntry> enumerate() {
         Map<String, List<String>> overrides = prefs.memberships();
 
         List<AppEntry> out = loadViaLauncherApps(overrides);

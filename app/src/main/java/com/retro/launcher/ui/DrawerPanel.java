@@ -321,6 +321,10 @@ public final class DrawerPanel extends FrameLayout {
         List<String> cats = new ArrayList<>(app.categories);
         if (cats.contains(category)) cats.remove(category); else cats.add(category);
         prefs.setMembership(app.component(), cats);
+        // 2.1.3: the repository caches its enumeration, and each AppEntry
+        // carries the categories it was built with, so the assignment just
+        // written is only visible after a rebuild.
+        repository.invalidate();
         refresh();
         openMembershipSheet(category);
     }
@@ -572,11 +576,11 @@ public final class DrawerPanel extends FrameLayout {
             }
 
             if (app.diagnostic) {
-                icon.setImageBitmap(null);
+                icon.setImageDrawable(null);
                 label.setText(app.label);
                 caption.setText("");
             } else {
-                icon.setImageBitmap(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
+                icon.setImageDrawable(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
                 label.setText(cloneMarked(app, palette));
                 caption.setText(app.categories.isEmpty()
                         ? "UNSORTED"

@@ -169,6 +169,35 @@ public final class LauncherRoot extends ViewGroup {
 
     public int currentView() { return view; }
 
+    /**
+     * Told when a settled panel starts or stops covering the sky (2.1.3).
+     *
+     * <p>{@code SkyView} runs a render thread whose only consumer is the
+     * wallpaper behind these panels, and the other three panels are opaque
+     * and full-screen. So whenever one of them is settled open, that thread
+     * is producing frames nobody can see — which was most of the time the
+     * drawer or Settings was up.
+     *
+     * <p>"Settled" is the load-bearing word. The sky is visible through every
+     * transition: a slide runs the panel in at a changing alpha, and a drag
+     * shows the sky the whole way. So this reports covered only once a slide
+     * has actually finished with a non-home panel in place, and reports
+     * uncovered the moment either a drag seizes a panel or a slide back to
+     * home begins.
+     */
+    public interface SkyCoverListener { void onSkyCoverChanged(boolean covered); }
+
+    private SkyCoverListener onSkyCover;
+    private boolean skyCovered;
+
+    public void setSkyCoverListener(SkyCoverListener l) { this.onSkyCover = l; }
+
+    private void setSkyCovered(boolean covered) {
+        if (covered == skyCovered) return;
+        skyCovered = covered;
+        if (onSkyCover != null) onSkyCover.onSkyCoverChanged(covered);
+    }
+
     @Override protected void onMeasure(int wSpec, int hSpec) {
         int w = MeasureSpec.getSize(wSpec), h = MeasureSpec.getSize(hSpec);
         int cw = MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY);
@@ -430,6 +459,8 @@ public final class LauncherRoot extends ViewGroup {
      * the panel judders between the finger and the animator.
      */
     private void seize(int slot, View panel) {
+        // A drag shows the sky for its whole length, whichever way it goes.
+        setSkyCovered(false);
         if (!dragBuzzing) {
             dragBuzzing = true;
             if (haptics != null) haptics.dragStart();
@@ -475,6 +506,10 @@ public final class LauncherRoot extends ViewGroup {
 
     public void goTo(int next) {
         this.view = next;
+        // Heading home: the sky is about to be revealed and the slide that
+        // reveals it plays over it, so stop throttling now rather than when
+        // the animation ends.
+        if (next == VIEW_HOME) setSkyCovered(false);
         // The finger is done; from here the settle animators are the only
         // writers, and applyRest must be free to correct any panel they skip.
         java.util.Arrays.fill(held, false);
@@ -533,6 +568,9 @@ public final class LauncherRoot extends ViewGroup {
                         // An interrupted slide must not hide a panel the
                         // finger is currently dragging back in.
                         if (!cancelled[0] && !shown) panel.setVisibility(INVISIBLE);
+                        // Settled open, and still the panel we settled to:
+                        // from here the sky is behind something opaque.
+                        if (!cancelled[0] && shown && view == slot) setSkyCovered(true);
                     }
                 });
         running[slot] = a;
