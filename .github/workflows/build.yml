@@ -30,10 +30,24 @@ jobs:
           # two have to be changed together.
           gradle-version: '8.14.5'
 
+      # packages: the action's default is "tools platform-tools", and `tools`
+      # — the obsolete SDK Tools package, superseded by cmdline-tools years
+      # ago — was removed from Google's repository. Once the runner image
+      # moved to cmdline-tools 16.0 the default started failing every build
+      # on every branch with "Failed to find package 'tools'", before Gradle
+      # ran at all. Naming the one package we actually want drops the dead
+      # one. Nothing in this repo ever used `tools`.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
-      - name: Install build-tools
-        run: sdkmanager "build-tools;36.0.0"
+      # Everything the build needs, named explicitly rather than inherited
+      # from whatever the runner image happens to preinstall. android-36 was
+      # coming from the image before; that is the same class of assumption
+      # that `tools` turned out to be, and sdkmanager is a no-op when a
+      # package is already present.
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Unit tests
         run: gradle :core:test --no-daemon
