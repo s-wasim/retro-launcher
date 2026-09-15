@@ -35,6 +35,7 @@ import com.retro.launcher.data.AppRepository;
 import com.retro.launcher.data.Prefs;
 import com.retro.launcher.data.UsageRepository;
 import com.retro.launcher.data.WeatherRepository;
+import com.retro.launcher.icons.DiskIconCache;
 import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
 import com.retro.launcher.icons.InstrumentedIconSource;
@@ -80,6 +81,7 @@ public class HomeActivity extends Activity {
     private WeatherRepository weatherRepository;
     private UsageRepository usageRepository;
     private Palette palette;
+    private IconSource icons;
     /** API 33+ only; null below that, where onBackPressed still runs. */
     private OnBackInvokedCallback backCallback;
 
@@ -114,9 +116,19 @@ public class HomeActivity extends Activity {
         metrics = new Metrics(dm.widthPixels, dm.density, dm.scaledDensity);
 
         appRepository = new AppRepository(this, getPackageManager(), prefs);
-        IconCache iconCache = new IconCache();
-        IconSource icons = new InstrumentedIconSource(
-                new PixelArtIcons(getPackageManager(), iconCache), "pixart");
+        // 2.1.2: the cache gained a disk tier under cacheDir, so the icon a
+        // cold start used to re-render for every installed app is read back
+        // instead. getCacheDir() can throw on a device whose storage is not
+        // mounted yet; the cache degrades to memory-only rather than taking
+        // the launcher down with it.
+        DiskIconCache diskIcons = null;
+        try {
+            diskIcons = new DiskIconCache(getCacheDir());
+        } catch (RuntimeException ignored) {
+        }
+        icons = new InstrumentedIconSource(
+                new PixelArtIcons(getResources(), getPackageManager(), new IconCache(diskIcons)),
+                "pixart");
 
         sky = new SkyView(this);
 
@@ -668,6 +680,24 @@ public class HomeActivity extends Activity {
         // A gesture interrupted by an app launch or the screen going off
         // produces no ACTION_UP; without this the buzz would outlive it.
         root.endDragBuzz();
+    }
+
+    /**
+     * 2.1.2. A launcher is the process the system most wants to keep resident
+     * and, being idle in the background most of the time, the one it will
+     * happily trim to get there. Handing the icon bitmaps back on request is
+     * how the launcher stays alive rather than being killed outright and
+     * cold-starting on the next Home press — which is the "always on" the
+     * caching work is really for.
+     *
+     * <p>Only the memory tier goes. Every byte of it is reconstructible from
+     * the disk tier for the price of a ~300-byte PNG decode, so this is close
+     * to free to undo, and dropping the files too would mean re-rendering
+     * every icon from PackageManager on the way back.
+     */
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_BACKGROUND && icons != null) icons.onTrimMemory();
     }
 
     @Override protected void onDestroy() {

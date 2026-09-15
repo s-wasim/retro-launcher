@@ -123,7 +123,7 @@ public final class DockView extends LinearLayout {
 
         int tileSize = Math.round(metrics.cqw(13f));
         ImageView tile = new ImageView(getContext());
-        tile.setImageBitmap(icons.iconFor(entryFor(component), palette, tileSize));
+        tile.setImageDrawable(icons.iconFor(entryFor(component), palette, tileSize));
         tile.setLayoutParams(new LinearLayout.LayoutParams(tileSize, tileSize));
 
         TextView caption = new TextView(getContext());

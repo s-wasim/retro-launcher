@@ -572,11 +572,11 @@ public final class DrawerPanel extends FrameLayout {
             }
 
             if (app.diagnostic) {
-                icon.setImageBitmap(null);
+                icon.setImageDrawable(null);
                 label.setText(app.label);
                 caption.setText("");
             } else {
-                icon.setImageBitmap(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
+                icon.setImageDrawable(icons.iconFor(app, palette, Math.round(metrics.cqw(SIZE_ICON_CQW))));
                 label.setText(cloneMarked(app, palette));
                 caption.setText(app.categories.isEmpty()
                         ? "UNSORTED"

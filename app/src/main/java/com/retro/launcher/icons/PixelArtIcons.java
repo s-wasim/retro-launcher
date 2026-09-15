@@ -2,15 +2,18 @@ package com.retro.launcher.icons;
 
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.AdaptiveIconDrawable;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 
+import com.retro.launcher.core.IconCacheKey;
 import com.retro.launcher.core.IconCoverage;
 import com.retro.launcher.core.Palette;
 import com.retro.launcher.core.PixelGlyphs;
@@ -33,14 +36,46 @@ import com.retro.launcher.data.AppEntry;
  *   <li><b>Letter tile.</b> Only when the app genuinely has no icon.</li>
  * </ol>
  *
+ * <p><b>2.1.2 — what each stage costs, and therefore what is cached where.</b>
+ * The three stages are nothing like each other in price, so they are not
+ * cached alike:
+ *
+ * <ul>
+ *   <li><b>Stage 1</b> is a few dozen {@code drawRect} calls against a 16x16
+ *       grid, with no {@code PackageManager} round-trip. Re-rendering it is
+ *       cheaper than decoding a PNG of it, so it is held in memory and never
+ *       written to disk — which is the "when a mark is available, nothing
+ *       happens" case.</li>
+ *   <li><b>Stage 2</b> is the expensive one: a drawable load across a Binder
+ *       call, an adaptive-icon crop, 576 nearest-ramp lookups and a scale.
+ *       Memory <em>and</em> disk, with the 24-hour TTL from
+ *       {@link IconCacheKey}.</li>
+ *   <li><b>Stage 3</b> is cheap to draw but is only reached after stage 2 has
+ *       already paid its full cost to discover there was no usable icon — the
+ *       drawable load and the blank test are the price of getting here at
+ *       all. Caching it is therefore caching that failed lookup, which is the
+ *       point. Memory and disk.</li>
+ * </ul>
+ *
+ * <p>Stages 1 and 2 are cached at their own source resolution — 16x16 and
+ * 24x24 — and upscaled by the returned {@link BitmapDrawable} with filtering
+ * off, at 1/29th of the memory. Stage 2 is pixel-for-pixel identical to what
+ * it produced before: {@code createScaledBitmap(…, false)} is itself a
+ * filterless matrix scale, so moving it from eager to draw-time changes when
+ * it happens and not what it computes. Stage 1 is a grid rather than a
+ * rescale — it used to round each run's edges to device pixels itself, and
+ * now lets the same nearest-neighbour upscale do it — so a cell boundary can
+ * land one device pixel either side of where it used to at sizes that are not
+ * a whole multiple of 16. Same cells, same colours, same hard edges. Stage 3
+ * is antialiased text and cannot be reconstructed from a smaller copy at all,
+ * so it alone is still rendered and cached per size.
+ *
  * <p>This replaces the {@code GeneratedTileIcons} / {@code PosterizedIcons}
  * either-or, which was wired behind a debug flag and made the two mutually
  * exclusive — so a hand-drawn mark and a converted real icon could never
  * appear in the same drawer. They are stages of one chain, not rivals.
  */
 public final class PixelArtIcons implements IconSource {
-
-    private static final String SOURCE = "pixart";
 
     /** The conversion resolution. Coarse enough to read as pixel art at any
      *  size, fine enough that a logo survives it — 16 lost too much. */
@@ -53,50 +88,106 @@ public final class PixelArtIcons implements IconSource {
 
     private final PackageManager pm;
     private final IconCache cache;
+    private final Resources resources;
 
-    public PixelArtIcons(PackageManager pm, IconCache cache) {
+    public PixelArtIcons(Resources resources, PackageManager pm, IconCache cache) {
+        this.resources = resources;
         this.pm = pm;
         this.cache = cache;
     }
 
-    @Override public Bitmap iconFor(AppEntry app, Palette palette, int sizePx) {
-        String key = IconCache.key(app.component(), palette.id, palette.dark, SOURCE, sizePx);
-        Bitmap cached = cache.get(key);
-        if (cached != null) return cached;
+    /**
+     * The three stages, each asked of the cache before it is rendered.
+     *
+     * <p>The order matters for more than appearance: a stage-1 hit never
+     * touches {@code PackageManager} at all, and a stage-2 <em>or</em> stage-3
+     * hit skips the drawable load that both of them otherwise require. So a
+     * warm cache turns the whole method into one lookup, which is what makes
+     * scrolling the drawer cost nothing.
+     */
+    @Override public Drawable iconFor(AppEntry app, Palette palette, int sizePx) {
+        String component = app.component();
 
-        Bitmap bmp = render(app, palette, sizePx);
-        cache.put(key, bmp);
-        return bmp;
+        // Stage 1 — a hand-drawn mark. Memory-only: see the class note.
+        String mark = PixelGlyphs.forPackage(app.packageName);
+        if (mark != null) {
+            String key = IconCacheKey.key(
+                    component, palette.id, palette.dark, IconCacheKey.STAGE_MARK);
+            Bitmap hit = cache.get(key);
+            if (hit == null) {
+                hit = drawMark(mark, palette);
+                cache.putMemory(key, hit);
+            }
+            return pixels(hit);
+        }
+
+        // Stage 2 — the app's own icon, quantized. Memory and disk.
+        String iconKey = IconCacheKey.key(
+                component, palette.id, palette.dark, IconCacheKey.STAGE_ICON);
+        Bitmap cachedIcon = cache.get(iconKey);
+        if (cachedIcon != null) return pixels(cachedIcon);
+
+        // Stage 3's key is checked before stage 2 is rendered, because
+        // reaching stage 3 at all means stage 2 already ran and failed — and
+        // that failed drawable load is exactly the cost worth not repeating.
+        String letterKey = IconCacheKey.sizedKey(
+                component, palette.id, palette.dark, IconCacheKey.STAGE_LETTER, sizePx);
+        Bitmap cachedLetter = cache.get(letterKey);
+        if (cachedLetter != null) return pixels(cachedLetter);
+
+        Bitmap converted = convertRealIcon(app, palette);
+        if (converted != null) {
+            cache.put(iconKey, converted);
+            return pixels(converted);
+        }
+
+        Bitmap letter = drawLetterTile(app.firstLetter(), palette, sizePx);
+        cache.put(letterKey, letter);
+        return pixels(letter);
     }
 
-    private Bitmap render(AppEntry app, Palette palette, int sizePx) {
-        // Stage 1.
-        String mark = PixelGlyphs.forPackage(app.packageName);
-        if (mark != null) return drawMark(mark, palette, sizePx);
-
-        // Stage 2.
-        Bitmap converted = convertRealIcon(app, palette, sizePx);
-        if (converted != null) return converted;
-
-        // Stage 3.
-        return drawLetterTile(app.firstLetter(), palette, sizePx);
+    /**
+     * Wraps a cached bitmap for drawing without resampling it.
+     *
+     * <p>Filtering off is what keeps this pixel art: the ImageView scales the
+     * 16x16 or 24x24 source up to the row height with nearest-neighbour,
+     * which is the identical operation {@code createScaledBitmap(…, false)}
+     * used to perform eagerly into a 67 KB bitmap. Dithering off for the same
+     * reason — these pixels are exact palette entries and must stay exact.
+     */
+    private Drawable pixels(Bitmap bmp) {
+        BitmapDrawable d = new BitmapDrawable(resources, bmp);
+        d.setFilterBitmap(false);
+        d.setAntiAlias(false);
+        d.setDither(false);
+        return d;
     }
 
     // ---- stage 1: hand-drawn marks ---------------------------------------
 
-    /** Marks are pixel art: no antialiasing, and every rect snapped to the
-     *  16x16 grid, or the edges turn to mush at small icon sizes. */
-    private static Bitmap drawMark(String mark, Palette palette, int sizePx) {
-        Bitmap bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+    /**
+     * Marks are pixel art: no antialiasing, and every rect snapped to the
+     * 16x16 grid, or the edges turn to mush at small icon sizes.
+     *
+     * <p>2.1.2 draws at the grid's own resolution rather than at the caller's
+     * pixel size: one bitmap pixel per grid cell, upscaled nearest-neighbour
+     * by the ImageView. 1 KB instead of 67 KB, and the size drops out of the
+     * cache key. The rounding of a cell boundary to a device pixel moves from
+     * this method's {@code Math.round} to that upscale, which can place an
+     * edge one pixel either side of where it used to sit when the icon size
+     * is not a whole multiple of 16 — the cells, their colours and their hard
+     * edges are unchanged.
+     */
+    private static Bitmap drawMark(String mark, Palette palette) {
+        int size = PixelGlyphs.SIZE;
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bmp);
-        float scale = sizePx / (float) PixelTile.SIZE;
         Paint paint = new Paint();
         paint.setAntiAlias(false);
         for (int[] run : PixelGlyphs.runs(mark)) {
             int row = run[0], start = run[1], end = run[2];
             paint.setColor(colorFor((char) run[3], palette));
-            canvas.drawRect(Math.round(start * scale), Math.round(row * scale),
-                    Math.round((end + 1) * scale), Math.round((row + 1) * scale), paint);
+            canvas.drawRect(start, row, end + 1, row + 1, paint);
         }
         return bmp;
     }
@@ -117,7 +208,7 @@ public final class PixelArtIcons implements IconSource {
     /** @return the converted icon, or null when the app has no real icon —
      *          which is a rendered test, not an exception check, because the
      *          platform hands back a placeholder rather than throwing. */
-    private Bitmap convertRealIcon(AppEntry app, Palette palette, int sizePx) {
+    private Bitmap convertRealIcon(AppEntry app, Palette palette) {
         Drawable icon = loadIcon(app);
         if (icon == null || isPlatformDefault(icon)) return null;
 
@@ -142,9 +233,12 @@ public final class PixelArtIcons implements IconSource {
         }
         small.setPixels(pixels, 0, SRC, 0, 0, SRC, SRC);
 
-        // false: nearest-neighbour. Filtering here would turn pixel art back
-        // into a blurry small icon, which is the whole thing we are avoiding.
-        return Bitmap.createScaledBitmap(small, sizePx, sizePx, false);
+        // 2.1.2: the 24x24 square is what gets cached and returned. The
+        // upscale that used to happen here — createScaledBitmap(…, false),
+        // eagerly, into a bitmap 29x this size — now happens in the ImageView
+        // at draw time through the filterless drawable from pixels(), which is
+        // the same nearest-neighbour operation and allocates nothing.
+        return small;
     }
 
     /**
@@ -218,5 +312,20 @@ public final class PixelArtIcons implements IconSource {
         return bmp;
     }
 
+    /**
+     * Every stage colours through the palette, so nothing cached under the old
+     * one is reusable. Only the memory tier is dropped: the palette is part of
+     * the key, so the stored files are not stale — they are simply not being
+     * asked for — and a user switching back gets them from disk instead of
+     * re-rendering the lot. {@code DiskIconCache.sweep()} reclaims whatever
+     * really is abandoned when its TTL runs out.
+     */
     @Override public void onPaletteChanged() { cache.evictAll(); }
+
+    /**
+     * Under memory pressure the memory tier is exactly the right thing to give
+     * back: every byte of it is reconstructible, stages 2 and 3 from a
+     * ~300-byte PNG decode and stage 1 from a few {@code drawRect} calls.
+     */
+    @Override public void onTrimMemory() { cache.evictAll(); }
 }

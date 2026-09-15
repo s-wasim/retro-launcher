@@ -1,6 +1,6 @@
 package com.retro.launcher.icons;
 
-import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 import android.util.Log;
 
 import com.retro.launcher.core.Palette;
@@ -26,9 +26,9 @@ public final class InstrumentedIconSource implements IconSource {
         this.label = label;
     }
 
-    @Override public Bitmap iconFor(AppEntry app, Palette palette, int sizePx) {
+    @Override public Drawable iconFor(AppEntry app, Palette palette, int sizePx) {
         long start = System.nanoTime();
-        Bitmap bmp = delegate.iconFor(app, palette, sizePx);
+        Drawable drawable = delegate.iconFor(app, palette, sizePx);
         long elapsed = System.nanoTime() - start;
 
         sumNanos += elapsed;
@@ -39,8 +39,10 @@ public final class InstrumentedIconSource implements IconSource {
             sumNanos = 0L;
             count = 0;
         }
-        return bmp;
+        return drawable;
     }
 
     @Override public void onPaletteChanged() { delegate.onPaletteChanged(); }
+
+    @Override public void onTrimMemory() { delegate.onTrimMemory(); }
 }
