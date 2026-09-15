@@ -16,13 +16,20 @@ public final class SkyRenderer {
             {0.38f,-0.38f,0.15f}, {-0.06f,0.46f,0.21f}, {0.52f,0.44f,0.13f}, {-0.62f,-0.02f,0.14f}
     };
 
+    /** How many clouds the layer holds. {@link FrameBudget} needs it to
+     *  mirror the {@code Math.round(cover * clouds.length)} gate below. */
+    public static final int CLOUD_COUNT = 14;
+
     private static final class Puff { float dx, dy, r; }
     private static final class Cloud { float x, yf, s, sp; Puff[] puffs; }
     private static final class Drop { float x, yf, v, ph; int len; }
     private static final class Star { int x; float yf, b, ph; boolean big; }
     private static final class Flake { float x, yf, v, sway, ph; }
 
-    private static final float SUN_RADIUS = 13f;
+    /** Package-private rather than private so {@link FrameBudget} can ask
+     *  the same question {@code renderSun} does — whether the disc has set —
+     *  instead of keeping its own copy of the number. */
+    static final float SUN_RADIUS = 13f;
 
     private final int w, h;
     private final float[] sky = new float[6];
@@ -67,8 +74,8 @@ public final class SkyRenderer {
     }
 
     private Cloud[] buildClouds() {
-        Cloud[] out = new Cloud[14];
-        for (int i = 0; i < 14; i++) {
+        Cloud[] out = new Cloud[CLOUD_COUNT];
+        for (int i = 0; i < CLOUD_COUNT; i++) {
             int n = 4 + (int) (rnd() * 3);
             Puff[] puffs = new Puff[n];
             float x = 0;

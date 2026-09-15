@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.view.TextureView;
 
+import com.retro.launcher.core.FrameBudget;
 import com.retro.launcher.core.MoonPhase;
 import com.retro.launcher.core.SkyConditions;
 import com.retro.launcher.core.SkyRenderer;
@@ -40,7 +41,6 @@ import java.util.Calendar;
 public final class SkyView extends TextureView implements TextureView.SurfaceTextureListener {
 
     private static final int BUF_W = 108;
-    private static final long FRAME_BUDGET_MS = 33L; // ~30fps
 
     private final Paint paint = new Paint();
     private final Rect dst = new Rect();
@@ -63,6 +63,33 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
     private volatile float latitude = Float.NaN;   // no fix yet
     private volatile float longitude = Float.NaN;  // no fix yet
     private volatile SolarTimes solarTimes;         // null until known
+
+    /** True while a panel is drawn over the sky. See {@link #setObscured}. */
+    private volatile boolean obscured;
+
+    /** The sleep the last frame's conditions earned, so {@link #loop} does
+     *  not have to rebuild a SkyConditions just to decide how long to wait. */
+    private volatile long frameIntervalMs = FrameBudget.SLOW_MS;
+
+    /**
+     * Guards the render thread's sleep so it can be cut short.
+     *
+     * <p>2.1.3 needs this. The loop used to {@code Thread.sleep(33)}, so
+     * {@code stopThread}'s {@code join(500)} always had fifteen chances to
+     * catch it and the thread was gone long before the timeout. Sleeps are now
+     * up to {@link FrameBudget#IDLE_MS}, which is ten times that timeout: the
+     * join would give up while the thread slept on, {@code renderThread} would
+     * be nulled, and the next {@code resume()} would start a <em>second</em>
+     * render thread with the first still alive and still about to call
+     * {@code lockCanvas}. Waiting on a monitor instead means stopping wakes
+     * the thread immediately rather than waiting it out.
+     */
+    private final Object sleepLock = new Object();
+
+    /** Set under {@link #sleepLock} to cut a sleep short. Distinguishes a
+     *  real wake from a spurious one, which {@code Object.wait} is allowed to
+     *  produce and which must go back to sleeping. */
+    private boolean wakeRequested;
 
     private final long startNanos = System.nanoTime();
 
@@ -139,6 +166,24 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
 
     public void resume() { startThreadIfNeeded(); }
 
+    /**
+     * Whether a panel is currently covering the sky.
+     *
+     * <p>The launcher's other three panels are opaque and full-screen, so for
+     * most of the time the drawer or Settings is open the renderer is drawing
+     * frames nobody can see. {@link FrameBudget#OBSCURED_FLOOR_MS} caps the
+     * rate at 1fps rather than stopping outright: a panel can be flung away
+     * in a single frame, and the sky behind it should already be current when
+     * it goes — and the panels are translucent for part of every transition.
+     */
+    public void setObscured(boolean covered) {
+        boolean wasObscured = this.obscured;
+        this.obscured = covered;
+        // Uncovering is the case that must not wait: the sky may be a full
+        // second into a 1fps sleep at the moment the panel leaves.
+        if (wasObscured && !covered) wake();
+    }
+
     private void startThreadIfNeeded() {
         if (running || !surfaceReady) return;
         running = true;
@@ -148,6 +193,7 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
 
     private void stopThread() {
         running = false;
+        wake();   // cut short whatever sleep it is in, up to IDLE_MS long
         Thread t = renderThread;
         if (t != null) {
             try { t.join(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
@@ -155,15 +201,62 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         renderThread = null;
     }
 
+    /**
+     * Sleeps up to {@code ms}, returning early if the thread is stopped or
+     * {@link #wake()} is called. Loops on the deadline rather than trusting
+     * one {@code wait} to have run its full term, because a spurious wakeup
+     * would otherwise turn a 4fps scene into a spin.
+     */
+    private void sleepFor(long ms) {
+        synchronized (sleepLock) {
+            long deadline = System.currentTimeMillis() + ms;
+            while (running && !wakeRequested) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0L) break;
+                try {
+                    sleepLock.wait(remaining);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            wakeRequested = false;
+        }
+    }
+
+    /** Ends the render thread's current sleep. Safe from any thread. */
+    private void wake() {
+        synchronized (sleepLock) {
+            wakeRequested = true;
+            sleepLock.notifyAll();
+        }
+    }
+
+    /**
+     * 2.1.3: the interval is no longer fixed.
+     *
+     * <p>This used to sleep a flat 33ms — ~30fps for as long as the launcher
+     * was foreground, whatever was on screen. {@link FrameBudget} now derives
+     * it from the scene, and because {@link #drawFrame} is what builds the
+     * conditions, it is also what publishes the next interval; the loop just
+     * reads what the last frame decided. A clear sky settles at 4fps and rain
+     * at 24, against 30 for both before.
+     *
+     * <p>A long idle sleep is not a problem for responsiveness: nothing waits
+     * on this thread. A change that needs to be seen immediately — a palette
+     * switch, the manual override moving — goes through a setter on the UI
+     * thread and lands in the volatile fields this loop reads on its next
+     * pass. The worst case is that it appears up to one interval late, which
+     * at the rates above is a quarter of a second on a scene where nothing is
+     * moving anyway.
+     */
     private void loop() {
         while (running) {
             long frameStart = System.currentTimeMillis();
             drawFrame();
             long elapsed = System.currentTimeMillis() - frameStart;
-            long sleep = FRAME_BUDGET_MS - elapsed;
-            if (sleep > 0) {
-                try { Thread.sleep(sleep); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-            }
+            long sleep = frameIntervalMs - elapsed;
+            if (sleep > 0) sleepFor(sleep);
         }
     }
 
@@ -171,7 +264,13 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         SkyRenderer r = renderer;
         Bitmap bmp = bitmap;
         Weather w = weather;
-        if (r == null || bmp == null || w == null) return;
+        if (r == null || bmp == null || w == null) {
+            // No reading yet, so there is nothing to draw and nothing to
+            // derive an interval from. Idle rather than spin at whatever the
+            // previous scene happened to earn.
+            frameIntervalMs = FrameBudget.IDLE_MS;
+            return;
+        }
 
         r.setTint(tintRamp);
         r.setDesaturation(desaturation);
@@ -198,6 +297,12 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         float seconds = (System.nanoTime() - startNanos) / 1_000_000_000f;
         SkyConditions c = new SkyConditions(hour, realHour, moonriseHour, moonsetHour,
                 w.cloudCover, w.precip, moonPhase, w.type, w.thunder, w.tempC);
+
+        // Published for loop() before the frame is drawn rather than after,
+        // so a scene that has just turned to rain speeds up on this frame
+        // instead of sleeping out one more slow interval first.
+        frameIntervalMs = FrameBudget.intervalMs(c, BUF_W, bufH, obscured);
+
         r.render(buf, c, seconds);
         bmp.setPixels(buf, 0, BUF_W, 0, 0, BUF_W, bufH);
 

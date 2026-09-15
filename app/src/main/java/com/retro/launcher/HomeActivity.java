@@ -38,7 +38,6 @@ import com.retro.launcher.data.WeatherRepository;
 import com.retro.launcher.icons.DiskIconCache;
 import com.retro.launcher.icons.IconCache;
 import com.retro.launcher.icons.IconSource;
-import com.retro.launcher.icons.InstrumentedIconSource;
 import com.retro.launcher.icons.PixelArtIcons;
 import com.retro.launcher.lock.ShizukuLock;
 import com.retro.launcher.shade.ShadeService;
@@ -87,11 +86,51 @@ public class HomeActivity extends Activity {
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            // 2.1.3: the enumeration is cached, and this broadcast is the
+            // main thing that invalidates it.
+            if (appRepository != null) appRepository.invalidate();
             if (drawer != null) drawer.refresh();
         }
     };
 
+    /**
+     * The sky's render thread is stopped in {@link #onPause()}, which covers
+     * the ordinary lock — but a launcher is the activity most likely to be
+     * left resumed while the screen goes dark, and on some OEM builds it is
+     * not paused for a screen-off at all. This is the guarantee that the
+     * per-pixel renderer is never running against a screen nobody is looking
+     * at. {@code ACTION_SCREEN_OFF} and {@code ON} are protected system
+     * broadcasts and cannot be registered for in the manifest, so they are
+     * registered here alongside the package receiver.
+     */
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (sky == null) return;
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                sky.pause();
+            } else if (hasWindowFocus()) {
+                // Only resume if we are actually the thing on screen; the
+                // screen coming on over a lock screen or another app is not
+                // our cue to start rendering again. onResume covers that.
+                sky.resume();
+            }
+        }
+    };
+
     private final Handler ticker = new Handler(Looper.getMainLooper());
+
+    /**
+     * 2.1.3: rescheduled onto the next wall-clock minute rather than a flat
+     * 60 seconds from now.
+     *
+     * <p>The old fixed delay drifted by however long the tick itself took
+     * plus whatever the scheduler added, so the displayed minute flipped at
+     * an arbitrary offset into it and the drift grew all day — the clock
+     * could sit a full minute behind the one on the lock screen. Aligning
+     * costs nothing and fixes that. It also means one wake per minute at a
+     * predictable instant, which is the kind the scheduler can group with
+     * other work rather than waking the CPU on its own for.
+     */
     private final Runnable minuteTick = new Runnable() {
         @Override public void run() {
             refreshPalette();
@@ -100,9 +139,20 @@ public class HomeActivity extends Activity {
             // Cheap: the repository's own policy decides whether this minute
             // is one where a fetch is actually due.
             weatherRepository.refresh(false, HomeActivity.this::refreshTime);
-            ticker.postDelayed(this, 60_000L);
+            scheduleMinuteTick();
         }
     };
+
+    /** Posts {@link #minuteTick} for the start of the next minute. The +50ms
+     *  is so a scheduler that fires a hair early still reads the new minute
+     *  rather than re-rendering the old one and waiting another whole minute
+     *  to correct itself. */
+    private void scheduleMinuteTick() {
+        long now = System.currentTimeMillis();
+        long untilNextMinute = 60_000L - Math.floorMod(now, 60_000L);
+        ticker.removeCallbacks(minuteTick);
+        ticker.postDelayed(minuteTick, untilNextMinute + 50L);
+    }
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -126,9 +176,13 @@ public class HomeActivity extends Activity {
             diskIcons = new DiskIconCache(getCacheDir());
         } catch (RuntimeException ignored) {
         }
-        icons = new InstrumentedIconSource(
-                new PixelArtIcons(getResources(), getPackageManager(), new IconCache(diskIcons)),
-                "pixart");
+        // Not wrapped in InstrumentedIconSource. That class's own javadoc says
+        // it is "never wired in a release build", but it was wired
+        // unconditionally — so every icon lookup, including the cache hits
+        // that are now the overwhelming majority, paid two System.nanoTime()
+        // calls and a running average it only ever logged. Kept in the tree
+        // for when a measurement is actually wanted; wrap this to use it.
+        icons = new PixelArtIcons(getResources(), getPackageManager(), new IconCache(diskIcons));
 
         sky = new SkyView(this);
 
@@ -194,6 +248,10 @@ public class HomeActivity extends Activity {
         });
         root.setDoubleTapListener(this::lockDevice);
         root.setOnStatusBarSwipeListener(this::expandStatusBar);
+        // 2.1.3: throttle the wallpaper renderer while a settled panel is
+        // covering it. See LauncherRoot.SkyCoverListener for why this reports
+        // on settle rather than on the gesture.
+        root.setSkyCoverListener(covered -> sky.setObscured(covered));
 
         home.dock.setHaptics(haptics);
         home.clock.setHaptics(haptics);
@@ -236,6 +294,7 @@ public class HomeActivity extends Activity {
         setupScreen.setVisibility(prefs.hintShown() ? View.GONE : View.VISIBLE);
 
         registerPackageReceiver();
+        registerScreenReceiver();
         registerBackCallback();
     }
 
@@ -252,6 +311,21 @@ public class HomeActivity extends Activity {
             registerReceiver(packageReceiver, packageChangeFilter(), RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(packageReceiver, packageChangeFilter());
+        }
+    }
+
+    /** {@code SCREEN_OFF}/{@code SCREEN_ON} are protected system broadcasts,
+     *  so like the package filter this needs no export flag; passing
+     *  {@code RECEIVER_NOT_EXPORTED} on API 33+ says so rather than relying on
+     *  the exemption. */
+    private void registerScreenReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(screenReceiver, filter);
         }
     }
 
@@ -664,13 +738,35 @@ public class HomeActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        ticker.post(minuteTick);
+        // Render the current minute immediately, then fall into step with the
+        // wall clock rather than 60 seconds from this instant.
+        refreshTime();
+        scheduleMinuteTick();
         sky.resume();
         drawer.refresh();
         refreshPermissionStatus();
         refreshUsage();
         refreshSkyLocation();
         weatherRepository.refresh(false, this::refreshTime);
+    }
+
+    /**
+     * The safety net under {@link #screenReceiver}'s {@code SCREEN_OFF} pause.
+     *
+     * <p>That pause is deliberately unconditional, because the case it exists
+     * for is a ROM that leaves the launcher resumed behind a dark screen. But
+     * an activity that was never paused is never resumed either, so on such a
+     * ROM {@code onResume} is not guaranteed to be the thing that starts the
+     * renderer again — and a wallpaper frozen until the next app switch is a
+     * worse bug than the one being fixed. Regaining focus always happens when
+     * the launcher becomes visible, whatever the OEM did with the lifecycle.
+     * {@code resume()} is idempotent, so the overlap with onResume costs
+     * nothing.
+     */
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (sky == null) return;
+        if (hasFocus) sky.resume(); else sky.pause();
     }
 
     @Override protected void onPause() {
@@ -703,6 +799,7 @@ public class HomeActivity extends Activity {
     @Override protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(packageReceiver);
+        unregisterReceiver(screenReceiver);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         }
