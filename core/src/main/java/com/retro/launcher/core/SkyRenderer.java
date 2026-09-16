@@ -26,6 +26,18 @@ public final class SkyRenderer {
     private static final class Star { int x; float yf, b, ph; boolean big; }
     private static final class Flake { float x, yf, v, sway, ph; }
 
+    /** Strike probability per frame at {@link ThunderIntensity#DISTANT} and
+     *  at {@link ThunderIntensity#EXTREME}. The old fixed value was 0.12,
+     *  which now sits a little above the middle of this range. */
+    private static final float STRIKE_CHANCE_MIN = 0.04f;
+    private static final float STRIKE_CHANCE_MAX = 0.30f;
+
+    /** Flash brightness at the bottom of the scale. The flash is multiplied
+     *  by 0.55 in {@link #applyFlash}, so 0.35 here is a visible lift rather
+     *  than a whiteout — which is what a distant storm behind cloud looks
+     *  like. */
+    private static final float FLASH_MIN = 0.35f;
+
     /** Package-private rather than private so {@link FrameBudget} can ask
      *  the same question {@code renderSun} does — whether the disc has set —
      *  instead of keeping its own copy of the number. */
@@ -240,7 +252,7 @@ public final class SkyRenderer {
         final float ambR = (topR + botR) / 2f, ambG = (topG + botG) / 2f, ambB = (topB + botB) / 2f;
         int nShown = Math.round(cover * clouds.length);
         renderClouds(out, storm, twilight, nShown, c.precip, ambR, ambG, ambB, seconds);
-        if (c.thunder) renderLightning(out);
+        if (c.thunder) renderLightning(out, c.thunderIntensity);
         if (c.type == Precip.RAIN) renderPrecipitation(out, c.precip, ambR, ambG, ambB, seconds);
         else if (c.type == Precip.SNOW) renderSnow(out, c.precip, seconds);
         applyFlash(out);
@@ -436,10 +448,29 @@ public final class SkyRenderer {
         }
     }
 
-    private void renderLightning(int[] out) {
-        final float STRIKE_CHANCE_PER_FRAME = 0.12f;
-        if (rand.nextFloat() < STRIKE_CHANCE_PER_FRAME) {
-            flash = 1f;
+    /**
+     * 2.3.1: how often it strikes, and how hard, now follow the storm.
+     *
+     * <p>Before this, every thunderstorm fired at a flat 0.12 chance per
+     * frame with a flash pinned to 1.0 — a distant rumble and a hailstorm
+     * looked identical. {@code intensity} is {@link ThunderIntensity}'s 0-5
+     * level as 0..1.
+     *
+     * <p>Both curves are deliberately floored well above zero. The lowest
+     * level is still a thunderstorm, and a storm that almost never flashes
+     * reads as the wallpaper being broken rather than as weather.
+     */
+    private void renderLightning(int[] out, float intensity) {
+        // Not named t: the bolt interpolation below has its own.
+        float strength = clamp01(intensity);
+        // 0.04 at the bottom of the scale to 0.30 at the top: roughly one
+        // strike every 6 seconds against one every 0.8 at the 24fps a storm
+        // renders at (FrameBudget.FAST_MS).
+        float strikeChance =
+                STRIKE_CHANCE_MIN + (STRIKE_CHANCE_MAX - STRIKE_CHANCE_MIN) * strength;
+        if (rand.nextFloat() < strikeChance) {
+            // A weak storm's flash is a glow behind cloud, not a whiteout.
+            flash = FLASH_MIN + (1f - FLASH_MIN) * strength;
             float bx = 18f + rand.nextFloat() * (w - 36);
             float x = bx, y = 40f + rand.nextFloat() * 30f;
             java.util.List<int[]> seg = new java.util.ArrayList<>();

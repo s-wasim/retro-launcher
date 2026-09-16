@@ -203,6 +203,7 @@ public final class WeatherRepository {
         prefs.putFloat(Prefs.K_WX_PRECIP, reading.precip);
         prefs.putInt(Prefs.K_WX_TYPE, reading.type.ordinal());
         prefs.putBool(Prefs.K_WX_THUNDER, reading.thunder);
+        prefs.putInt(Prefs.K_WX_THUNDER_LVL, reading.thunderLevel);
         prefs.putInt(Prefs.K_WX_PROB, reading.precipProbability);
         prefs.putLong(Prefs.K_WX_AT, readingAt);
     }
@@ -231,7 +232,15 @@ public final class WeatherRepository {
             Precip type = Precip.values()[prefs.getInt(Prefs.K_WX_TYPE, Precip.NONE.ordinal())];
             boolean thunder = prefs.getBool(Prefs.K_WX_THUNDER, false);
             int prob = prefs.getInt(Prefs.K_WX_PROB, 0);
-            reading = new Weather(tempC, label, cloudCover, precip, type, thunder, prob);
+            // A cache written before 2.3.1 has the boolean but no level. -1
+            // is the marker for that, and the boolean-taking constructor
+            // supplies the mid-scale default rather than a storm that
+            // renders as nothing.
+            int level = prefs.getInt(Prefs.K_WX_THUNDER_LVL, -1);
+            reading = level < 0
+                    ? new Weather(tempC, label, cloudCover, precip, type, thunder, prob)
+                    : new Weather(tempC, label, cloudCover, precip, type, prob,
+                            thunder ? Math.max(1, level) : 0);
         }
         readingAt = at;
     }

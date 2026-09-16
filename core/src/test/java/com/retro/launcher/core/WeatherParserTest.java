@@ -272,4 +272,87 @@ public class WeatherParserTest {
         assertNotNull(w);
         return w;
     }
+
+    // ---- 2.3.1: thunderstorm intensity from cape + the WMO code ----------
+
+    /** The same shape the app now requests, with `cape` appended. */
+    private static String storm(int weatherCode, String capeField) {
+        return "{\"current\":{\"time\":\"2026-09-16T17:00\",\"temperature_2m\":29.0,"
+                + "\"weather_code\":" + weatherCode + ",\"cloud_cover\":92,"
+                + "\"precipitation\":6.2,\"precipitation_probability\":90"
+                + capeField + "}}";
+    }
+
+    @Test public void capeGradesAPlainThunderstorm() {
+        Weather light = WeatherParser.parse(storm(95, ",\"cape\":300"));
+        Weather extreme = WeatherParser.parse(storm(95, ",\"cape\":4800"));
+        assertTrue(light.thunder);
+        assertTrue(extreme.thunder);
+        assertTrue("cape did not raise the level",
+                extreme.thunderLevel > light.thunderLevel);
+        assertEquals(ThunderIntensity.EXTREME, extreme.thunderLevel);
+    }
+
+    @Test public void aThunderstormWithNoCapeFieldStillGetsARealLevel() {
+        // The "text only" path: every pre-2.3.1 response shape, and any
+        // model that does not supply cape.
+        Weather w = WeatherParser.parse(storm(95, ""));
+        assertTrue(w.thunder);
+        assertEquals(ThunderIntensity.LIGHT, w.thunderLevel);
+        assertTrue(w.thunderScalar() > 0f);
+    }
+
+    @Test public void theThreeThunderCodesNoLongerCollapseToOne() {
+        // Before 2.3.1 these produced identical readings.
+        int plain = WeatherParser.parse(storm(95, "")).thunderLevel;
+        int slightHail = WeatherParser.parse(storm(96, "")).thunderLevel;
+        int heavyHail = WeatherParser.parse(storm(99, "")).thunderLevel;
+        assertTrue(plain < slightHail);
+        assertTrue(slightHail < heavyHail);
+    }
+
+    @Test public void hugeCapeOnAClearSkyIsNotAThunderstorm() {
+        // The false positive the whole design guards against: a hot humid
+        // afternoon routinely reads 3000+ J/kg with code 0.
+        String clear = "{\"current\":{\"time\":\"2026-09-16T15:00\","
+                + "\"temperature_2m\":38.0,\"weather_code\":0,\"cloud_cover\":4,"
+                + "\"precipitation\":0.0,\"precipitation_probability\":0,\"cape\":3400}}";
+        Weather w = WeatherParser.parse(clear);
+        assertFalse("cape conjured a storm from a clear sky", w.thunder);
+        assertEquals(ThunderIntensity.NONE, w.thunderLevel);
+        assertEquals(0f, w.thunderScalar(), 0f);
+    }
+
+    @Test public void rainWithHighCapeIsNotAThunderstormEither() {
+        String rain = "{\"current\":{\"time\":\"2026-09-16T15:00\","
+                + "\"temperature_2m\":19.0,\"weather_code\":63,\"cloud_cover\":95,"
+                + "\"precipitation\":3.0,\"precipitation_probability\":80,\"cape\":2800}}";
+        Weather w = WeatherParser.parse(rain);
+        assertFalse(w.thunder);
+        assertEquals(ThunderIntensity.NONE, w.thunderLevel);
+    }
+
+    @Test public void aNonStormReadingHasNoIntensity() {
+        Weather w = WeatherParser.parse(RECORDED);
+        assertFalse(w.thunder);
+        assertEquals(ThunderIntensity.NONE, w.thunderLevel);
+        assertEquals(0f, w.thunderScalar(), 0f);
+    }
+
+    @Test public void theBooleanAndTheLevelCanNeverDisagree() {
+        for (int code : new int[] { 0, 3, 61, 63, 71, 80, 95, 96, 99 }) {
+            for (String cape : new String[] { "", ",\"cape\":0", ",\"cape\":1800", ",\"cape\":5000" }) {
+                Weather w = WeatherParser.parse(storm(code, cape));
+                if (w == null) continue;
+                assertEquals("code " + code + " cape " + cape,
+                        w.thunder, w.thunderLevel > ThunderIntensity.NONE);
+            }
+        }
+    }
+
+    @Test public void aGarbageCapeFallsBackToTheCodeRatherThanFailing() {
+        Weather w = WeatherParser.parse(storm(96, ",\"cape\":null"));
+        assertNotNull("a bad cape must not fail the whole reading", w);
+        assertEquals(ThunderIntensity.SEVERE, w.thunderLevel);
+    }
 }

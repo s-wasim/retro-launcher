@@ -16,16 +16,46 @@ public final class Weather {
     public final boolean thunder;
     public final int precipProbability;
 
+    /**
+     * 2.3.1. How strong the storm is, 0-5 — see {@link ThunderIntensity}.
+     * Always 0 when {@link #thunder} is false and always non-zero when it is
+     * true, so the boolean is exactly {@code thunderLevel > 0} and the two
+     * cannot drift apart.
+     */
+    public final int thunderLevel;
+
+    /** Two-arg form kept for every caller that has no intensity to supply —
+     *  the manual override and a restored pre-2.3.1 cache. A storm with no
+     *  level reads as {@link ThunderIntensity#MODERATE}: it is the middle of
+     *  the scale, so an unknown storm looks like a storm without claiming to
+     *  be a notable one. */
     public Weather(int tempC, String label, float cloudCover, float precip,
                     Precip type, boolean thunder, int precipProbability) {
+        this(tempC, label, cloudCover, precip, type, precipProbability,
+                thunder ? ThunderIntensity.MODERATE : ThunderIntensity.NONE);
+    }
+
+    /**
+     * @param thunderLevel 0-5; clamped, and the sole source of
+     *                     {@link #thunder}
+     */
+    public Weather(int tempC, String label, float cloudCover, float precip,
+                    Precip type, int precipProbability, int thunderLevel) {
         this.tempC = tempC;
         this.label = label;
         this.cloudCover = cloudCover;
         this.precip = precip;
         this.type = type;
-        this.thunder = thunder;
+        this.thunderLevel = ThunderIntensity.clampLevel(thunderLevel);
+        this.thunder = this.thunderLevel > ThunderIntensity.NONE;
         this.precipProbability = precipProbability;
-        this.w = derive(cloudCover, precip, thunder);
+        this.w = derive(cloudCover, precip, this.thunder);
+    }
+
+    /** The storm's strength as 0..1, for the renderer. 0 when there is no
+     *  storm. */
+    public float thunderScalar() {
+        return ThunderIntensity.scalar(thunderLevel);
     }
 
     /**
