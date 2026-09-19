@@ -31,4 +31,23 @@ public final class SolarTimes {
         this.moonsetHour = moonsetHour;
         this.date = date;
     }
+
+    /**
+     * True when this day carries a moon window both ends of which are known.
+     *
+     * <p>Both, deliberately: {@link BodyPath#moonT} needs a rise *and* a set
+     * to have a window at all, and answers NaN — "the moon is not up" — if
+     * either is missing. A half-known window is therefore worth exactly as
+     * much to the renderer as no window, so it reads as absent here too.
+     */
+    public boolean hasMoonTimes() {
+        return !Float.isNaN(moonriseHour) && !Float.isNaN(moonsetHour);
+    }
+
+    /** The same day's sun times carrying the given moon window in place of
+     *  whatever this instance holds. */
+    public SolarTimes withMoonTimes(float moonriseHour, float moonsetHour) {
+        return new SolarTimes(sunriseHour, sunsetHour, tomorrowSunriseHour,
+                moonriseHour, moonsetHour, date);
+    }
 }
