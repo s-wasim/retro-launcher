@@ -197,6 +197,24 @@ public class SkyRendererTest {
                  > meanLumaBox(without, Math.round(moonX(20f, 0f, 24f)), Math.round(moonY(20f, 0f, 24f)), 10) + 10f);
     }
 
+    /**
+     * 2.3.2's regression. An unknown moonrise/moonset pair is NaN, not a
+     * window that happens to be closed, and it used to reach the renderer
+     * whenever the network's sun-only times were persisted over the computed
+     * ones. Nothing is drawn, at any hour, on any phase — which is what "the
+     * moon has completely disappeared" looked like from the outside.
+     */
+    @Test public void moonIsAbsentWhenItsWindowIsUnknown() {
+        SkyConditions c = new SkyConditions(20f, 20f, Float.NaN, Float.NaN,
+                0f, 0f, 0.5f, Precip.NONE, false, 20);
+        int[] withMoon = new int[W * H], without = new int[W * H];
+        new SkyRenderer(W, H).render(withMoon, basic(20f, 0.5f), 0f);
+        new SkyRenderer(W, H).render(without, c, 0f);
+        int cx = Math.round(moonX(20f, 0f, 24f)), cy = Math.round(moonY(20f, 0f, 24f));
+        assertTrue(meanLumaBox(withMoon, cx, cy, 10)
+                 > meanLumaBox(without, cx, cy, 10) + 10f);
+    }
+
     @Test public void fullMoonIsBrighterThanNewMoon() {
         SkyRenderer full = new SkyRenderer(W, H);
         SkyRenderer newMoon = new SkyRenderer(W, H);
