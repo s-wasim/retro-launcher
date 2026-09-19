@@ -72,19 +72,32 @@ public class BodyPathTest {
         }
     }
 
-    @Test public void moonTFoldsAMoonsetAfterMidnight() {
-        // Moonrise 22:00, moonset 03:00 next day -> a 5h window.
-        assertEquals(0f, BodyPath.moonT(22f, 22f, 3f), 0.001f);
-        assertEquals(0.5f, BodyPath.moonT(0.5f, 22f, 3f), 0.001f);
-        assertEquals(1f, BodyPath.moonT(3f, 22f, 3f), 0.01f);
+    @Test public void moonTSpansAWindowThatClosesAfterMidnight() {
+        // Moonrise 22:00, moonset 03:00 the next day -> a 5h window, reported
+        // as 22..27 since 2.3.4 rather than wrapped into [0, 24).
+        assertEquals(0f, BodyPath.moonT(22f, 22f, 27f), 0.001f);
+        assertEquals(0.5f, BodyPath.moonT(24.5f, 22f, 27f), 0.001f);
+        assertEquals(1f, BodyPath.moonT(27f, 22f, 27f), 0.001f);
+    }
+
+    @Test public void moonTSpansAWindowThatOpenedBeforeMidnight() {
+        // The same window seen from the following day: rose at -2 (22:00
+        // yesterday), sets at 03:00 today.
+        assertEquals(0.4f, BodyPath.moonT(0f, -2f, 3f), 0.001f);
+        assertEquals(1f, BodyPath.moonT(3f, -2f, 3f), 0.001f);
+    }
+
+    @Test public void moonTIsNegativeBeforeItsWindowOpens() {
+        // A window that has not started yet is how LunarMath reports "the
+        // moon is down and rises later" — it must read as off-screen, not as
+        // a wrapped position at the other end of the night.
+        assertTrue(BodyPath.moonT(12f, 15.2f, 25.3f) < 0f);
     }
 
     @Test public void moonTIsMonotonicAcrossTheWindow() {
-        float prev = BodyPath.moonT(22f, 22f, 3f);
-        float h = 22f;
+        float prev = BodyPath.moonT(22f, 22f, 27f);
         for (int i = 1; i <= 20; i++) {
-            h = (h + 0.25f) % 24f;
-            float cur = BodyPath.moonT(h, 22f, 3f);
+            float cur = BodyPath.moonT(22f + i * 0.25f, 22f, 27f);
             assertTrue("step " + i, cur > prev);
             prev = cur;
         }
@@ -92,5 +105,8 @@ public class BodyPathTest {
 
     @Test public void moonTIsNaNForADegenerateWindow() {
         assertTrue(Float.isNaN(BodyPath.moonT(10f, 8f, 8f)));
+        // And for a pair left over from the pre-2.3.4 wrapped encoding,
+        // rather than a negative span read as a position.
+        assertTrue(Float.isNaN(BodyPath.moonT(10f, 22f, 3f)));
     }
 }

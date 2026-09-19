@@ -222,7 +222,13 @@ public class HomeActivity extends Activity {
         screenTime = new ScreenTimePanel(this, metrics, prefs);
         screenTime.setOnCloseListener(() -> root.goTo(LauncherRoot.VIEW_HOME));
         screenTime.setOnLimitChangedListener(this::refreshUsage);
-        screenTime.setOnWallpaperOverrideChangedListener(this::refreshTime);
+        screenTime.setOnWallpaperOverrideChangedListener(() -> {
+            refreshTime();
+            // Turning the override off hands the sky back to real time, which
+            // needs today's solar and lunar data to be current right now
+            // rather than whenever the minute tick next runs.
+            refreshSkyLocation();
+        });
 
         // The weather region opens a weather app (DESIGN_NOTES §9 row 8). With
         // none installed it used to do nothing; now it asks for a fresh
@@ -509,13 +515,21 @@ public class HomeActivity extends Activity {
         sky.setTint(prefs.tint() ? palette.ramp() : null);
     }
 
-    /** The moon's phase is the same everywhere; which way up it looks, and
-     *  what real time maps onto the sky gradient, are not. Both come from
-     *  the coarse fix and solar times the weather repository already keeps —
-     *  skipped entirely while the manual wallpaper override drives the sky
-     *  instead (V9 §7b). */
+    /**
+     * The moon's phase is the same everywhere; which way up it looks, and
+     * what real time maps onto the sky gradient, are not. Both come from the
+     * coarse fix and solar times the weather repository already keeps.
+     *
+     * <p>2.3.4: no longer skipped while the manual wallpaper override drives
+     * the sky (V9 §7b). Skipping it saved a {@code getLastKnownLocation} read
+     * a minute and cost the sky its bearings: with the override on at
+     * startup, {@code sky.solarTimes} was never set at all, so turning the
+     * override back off left the sun on the fixed 6.2/18.4 table and the moon
+     * — which needs a real rise/set window to be drawn at all — missing
+     * entirely, until the next minute tick happened to come round. The values
+     * are simply unused while the override is on.
+     */
     private void refreshSkyLocation() {
-        if (prefs.manualWallpaper()) return;
         double[] fix = weatherRepository.fix();
         sky.setLocation(fix == null ? Float.NaN : (float) fix[0],
                          fix == null ? Float.NaN : (float) fix[1]);

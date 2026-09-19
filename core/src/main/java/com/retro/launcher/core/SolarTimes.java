@@ -3,9 +3,11 @@ package com.retro.launcher.core;
 import java.time.LocalDate;
 
 /**
- * One day's sunrise, sunset, the *next* day's sunrise, and (V9) that day's
- * moonrise/moonset — each as a decimal local hour in {@code [0, 24)}, or NaN
- * when unknown — plus the date they belong to. Immutable.
+ * One day's sunrise, sunset and the *next* day's sunrise — each as a decimal
+ * local hour in {@code [0, 24)} — plus (V9) the moon window to draw against,
+ * as hours relative to that day's local midnight, which 2.3.4 allows to fall
+ * outside {@code [0, 24)} so a window crossing midnight needs no encoding.
+ * Any of them is NaN when unknown. Plus the date they belong to. Immutable.
  */
 public final class SolarTimes {
 
@@ -30,18 +32,6 @@ public final class SolarTimes {
         this.moonriseHour = moonriseHour;
         this.moonsetHour = moonsetHour;
         this.date = date;
-    }
-
-    /**
-     * True when this day carries a moon window both ends of which are known.
-     *
-     * <p>Both, deliberately: {@link BodyPath#moonT} needs a rise *and* a set
-     * to have a window at all, and answers NaN — "the moon is not up" — if
-     * either is missing. A half-known window is therefore worth exactly as
-     * much to the renderer as no window, so it reads as absent here too.
-     */
-    public boolean hasMoonTimes() {
-        return !Float.isNaN(moonriseHour) && !Float.isNaN(moonsetHour);
     }
 
     /** The same day's sun times carrying the given moon window in place of

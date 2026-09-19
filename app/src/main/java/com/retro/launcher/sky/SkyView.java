@@ -105,7 +105,10 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
      *  already-"warped" hour (bypassing {@link SolarClock#warp} so the full
      *  0-24 keyframe range is directly scrubbable) and the moon is always
      *  visible across the whole knob range rather than gated by a real
-     *  moonrise/moonset window. */
+     *  moonrise/moonset window — 0..24 is a whole-day window under
+     *  {@link com.retro.launcher.core.LunarMath#moonWindow}'s contract.
+     *  Before 2.3.4 the claim was only half true: the daylight fade erased
+     *  the moon over the knob's whole daytime range anyway. */
     public void setManualOverride(boolean enabled, float hour, float moonPhase) {
         this.manualOverrideEnabled = enabled;
         this.manualHour = hour;

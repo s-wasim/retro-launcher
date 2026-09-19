@@ -123,11 +123,10 @@ public class SkyRendererTest {
         float u = 2f * t - 1f;
         return SUN_R + (H - 2f * SUN_R) * u * u;
     }
+    /** Mirrors {@link BodyPath#moonT}: a plain lerp across a window whose
+     *  ends are offsets from midnight, so the set is always the larger. */
     private static float moonT(float hour, float moonrise, float moonset) {
-        float end = moonset <= moonrise ? moonset + 24f : moonset;
-        float span = end - moonrise;
-        float h = hour < moonrise ? hour + 24f : hour;
-        return (h - moonrise) / span;
+        return (hour - moonrise) / (moonset - moonrise);
     }
     private static float moonX(float hour, float moonrise, float moonset) {
         return moonT(hour, moonrise, moonset) * W;
@@ -233,20 +232,25 @@ public class SkyRendererTest {
         return buf;
     }
 
-    // Moonrise 20:00, moonset 8:00 next day: a genuine nighttime window whose
-    // vertex (t=0.5) falls at hour 2 — deep night by sunAlt too, unlike
-    // basic()'s all-day 0/24 window whose t=0.5 vertex falls at hour 12
-    // (solar noon), where SkyRenderer's own sun-driven moonVisibility fade
-    // is intentionally zero. These three crescent/terminator tests care
-    // about the disc's lit pattern, not the time of day, so they use this
-    // window instead of basic() to keep the moon fully faded in.
-    private static final float NIGHT_MOONRISE = 20f, NIGHT_MOONSET = 8f, NIGHT_VERTEX_HOUR = 2f;
+    // Moonrise 20:00, moonset 08:00 the next morning: a genuine nighttime
+    // window whose vertex (t=0.5) falls at 02:00, deep night by sunAlt too —
+    // unlike basic()'s all-day 0/24 window, whose t=0.5 vertex falls at solar
+    // noon where the daylight fade is deliberately at its floor. These three
+    // crescent/terminator tests care about the disc's lit pattern, not the
+    // time of day, so they use this window to keep the moon fully faded in.
+    //
+    // 2.3.4: the set and the vertex are 32 and 26, not 8 and 2. Moon hours
+    // are offsets from today's midnight now, so tomorrow morning is 32 rather
+    // than a wrap. The sky's own warped hour stays at 2 — SkyConditions keeps
+    // the two clocks apart for exactly this reason.
+    private static final float NIGHT_MOONRISE = 20f, NIGHT_MOONSET = 32f, NIGHT_VERTEX_HOUR = 26f;
+    private static final float NIGHT_SKY_HOUR = 2f;
 
     private int[] moonAtNight(float phase, boolean southern) {
         SkyRenderer r = new SkyRenderer(W, H);
         r.setSouthernView(southern);
         int[] buf = new int[W * H];
-        SkyConditions c = new SkyConditions(NIGHT_VERTEX_HOUR, NIGHT_VERTEX_HOUR,
+        SkyConditions c = new SkyConditions(NIGHT_SKY_HOUR, NIGHT_VERTEX_HOUR,
                 NIGHT_MOONRISE, NIGHT_MOONSET, 0f, 0f, phase, Precip.NONE, false, 20);
         r.render(buf, c, 0f);
         return buf;
@@ -274,6 +278,54 @@ public class SkyRendererTest {
         int cy = Math.round(moonY(NIGHT_VERTEX_HOUR, NIGHT_MOONRISE, NIGHT_MOONSET));
         assertTrue(meanLumaBox(north, cx + 9, cy, 2) > meanLumaBox(south, cx + 9, cy, 2) + 20f);
         assertTrue(meanLumaBox(south, cx - 9, cy, 2) > meanLumaBox(north, cx - 9, cy, 2) + 20f);
+    }
+
+    // ---- 2.3.4: the daytime moon ----------------------------------------
+
+    private static SkyConditions daytime(float hour, float phase, float moonrise, float moonset) {
+        return new SkyConditions(hour, hour, moonrise, moonset, 0f, 0f, phase,
+                Precip.NONE, false, 20);
+    }
+
+    /** The same afternoon sky with the moon up and with it still below the
+     *  horizon, sampled over where the disc would be. */
+    private static float afternoonMoonContrast(float phase) {
+        final float hour = 15f;
+        int cx = Math.round(moonX(hour, 0f, 24f)), cy = Math.round(moonY(hour, 0f, 24f));
+        int[] up = new int[W * H], notRisen = new int[W * H];
+        new SkyRenderer(W, H).render(up, daytime(hour, phase, 0f, 24f), 0f);
+        // Rises at 20:00 and sets at 08:00 tomorrow: t is negative at 15:00.
+        new SkyRenderer(W, H).render(notRisen, daytime(hour, phase, 20f, 32f), 0f);
+        return meanLumaBox(up, cx, cy, 6) - meanLumaBox(notRisen, cx, cy, 6);
+    }
+
+    @Test public void aGibbousMoonIsVisibleInTheAfternoonSky() {
+        // The regression. The sun-driven fade used to reach zero about half an
+        // hour after sunrise, so a moon that was genuinely up all afternoon —
+        // the normal state of affairs for the ten days around each quarter —
+        // was erased from the wallpaper until sunset.
+        assertTrue("a gibbous moon must show against a daylit sky",
+                afternoonMoonContrast(0.42f) > 8f);
+    }
+
+    @Test public void aThinCrescentAlmostDisappearsIntoTheAfternoonSky() {
+        // What daylight costs the moon is contrast, and contrast scales with
+        // how much of the disc is lit. A three-day crescent is not a gibbous.
+        assertTrue("a thin crescent must be far fainter by day than a gibbous",
+                afternoonMoonContrast(0.08f) < afternoonMoonContrast(0.42f) * 0.5f);
+    }
+
+    @Test public void theSameCrescentIsFullyDrawnAtNight() {
+        // The lit-fraction floor is a daylight term only: after dark a
+        // crescent is as solid as anything else.
+        float night = 1f;
+        int cx = Math.round(moonX(night, 0f, 24f)), cy = Math.round(moonY(night, 0f, 24f));
+        int[] up = new int[W * H], notRisen = new int[W * H];
+        new SkyRenderer(W, H).render(up, daytime(night, 0.08f, 0f, 24f), 0f);
+        new SkyRenderer(W, H).render(notRisen, daytime(night, 0.08f, 6f, 18f), 0f);
+        float atNight = meanLumaBox(up, cx, cy, 6) - meanLumaBox(notRisen, cx, cy, 6);
+        assertTrue("the same crescent must read much more strongly at night",
+                atNight > afternoonMoonContrast(0.08f) * 2f);
     }
 
     @Test public void hemisphereDoesNotChangeHowMuchOfAFullMoonIsLit() {

@@ -1,21 +1,27 @@
 package com.retro.launcher.core;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Moonrise and moonset from latitude, longitude and date, offline — mirrors
- * {@link SolarMath}'s style. Pure math, no I/O, no Android type.
+ * Moonrise and moonset from latitude, longitude and an instant, offline —
+ * mirrors {@link SolarMath}'s style. Pure math, no I/O, no Android type.
  *
  * Low-precision lunar ecliptic position (the same order of approximation
  * {@link MoonPhase} already uses) is converted to equatorial coordinates,
- * then searched hour-by-hour for the two crossings of {@code +0.125°} — Meeus's fixed mean value of
- * "0.7275·parallax − refraction" for the Moon (Astronomical Algorithms
- * ch. 15), used as a constant rather than recomputed per-instant since a
- * 12px disc cannot show the arcminute-scale difference true parallax would
- * make. Each 2-hour span is fit with a parabola through three altitude
- * samples and solved for its root(s) — the standard hour-stepping method,
- * accurate to a few minutes for a body that moves as slowly as the Moon.
+ * then searched hour-by-hour for the crossings of {@code +0.125°} — Meeus's
+ * fixed mean value of "0.7275·parallax − refraction" for the Moon
+ * (Astronomical Algorithms ch. 15), used as a constant rather than
+ * recomputed per-instant since a 12px disc cannot show the arcminute-scale
+ * difference true parallax would make. Each 2-hour span is fit with a
+ * parabola through three altitude samples and solved for its root(s) — the
+ * standard hour-stepping method, accurate to a few minutes for a body that
+ * moves as slowly as the Moon.
  */
 public final class LunarMath {
 
@@ -27,6 +33,24 @@ public final class LunarMath {
     private static final double OBLIQUITY_DEG = 23.4397;
     private static final long HOUR_MS = 3_600_000L;
 
+    /**
+     * One rise-to-set window, as decimal hours relative to local midnight of
+     * the day the caller asked about.
+     *
+     * <h3>2.3.4: hours are no longer clock readings</h3>
+     * These are <em>offsets</em>, not times of day: {@code moonriseHour} is
+     * negative when the moon rose before midnight, and {@code moonsetHour}
+     * exceeds 24 when it sets after the next one. {@code moonsetHour} is
+     * therefore always greater than {@code moonriseHour}, and
+     * {@link BodyPath#moonT} is a plain lerp between them.
+     *
+     * <p>Before 2.3.4 both were forced into {@code [0, 24)} and a set
+     * numerically below the rise was the encoding for "sets tomorrow". That
+     * cost more than it saved: a calendar day can hold the tail of one
+     * window and the start of the next, and squeezing a rise from one and a
+     * set from the other into a single wrapped pair put moonset up to an
+     * hour out. See {@link #moonWindow}.
+     */
     public static final class LunarTimes {
         public final float moonriseHour;
         public final float moonsetHour;
@@ -36,98 +60,111 @@ public final class LunarMath {
         }
     }
 
-    /** A day's crossings, either of which may be absent. */
-    private static final class Scan {
-        Double rise, set;
+    /** A crossing of {@link #MOONRISE_ALTITUDE_DEG}: when, and which way. */
+    private static final class Crossing {
+        final long millis;
+        final boolean rising;
+        Crossing(long millis, boolean rising) { this.millis = millis; this.rising = rising; }
     }
 
-    /** The set hour reported for a moon that never sets on this day. Not
-     *  24.0: {@link SolarTimes} documents its hours as {@code [0, 24)}, and
-     *  {@link BodyPath#moonT} reads set &lt; rise as "sets tomorrow", which a
-     *  literal 24 would not trip. A 36-millisecond shortfall is invisible on
-     *  a 12px disc. */
-    private static final float ALL_DAY_SET = 23.99999f;
-
-    /** The calendar day itself. */
-    private static final int DAY_SCAN_HOURS = 24;
-
-    /** A neighbour is scanned two hours long, not 24. A day under a
-     *  daylight-saving fall-back is 25 hours, and a 24-hour scan of it stops
-     *  an hour before it ends — which is exactly where a late moonrise sat on
-     *  2026-11-02 in New York, leaving that day with half a window. */
-    private static final int NEIGHBOUR_SCAN_HOURS = 26;
+    /** A rise paired with the set that actually closes it. Either end may be
+     *  anchored to the scan's edge when the window runs past it. */
+    private static final class Window {
+        final long rise, set;
+        Window(long rise, long set) { this.rise = rise; this.set = set; }
+    }
 
     /**
-     * Today's moonrise and moonset as decimal local hours in {@code zone}.
+     * The moon's up-period covering {@code atMillis}, or the next one to
+     * begin after it, as hours relative to local midnight of the day
+     * {@code atMillis} falls on in {@code zone}.
      *
-     * <h3>2.3.3: windows that cross midnight</h3>
-     * The moon rises about 50 minutes later each day, so roughly twice a
-     * month it rises in the late evening and does not set until after
-     * midnight — and about as often it set in the small hours having risen
-     * the previous evening. Scanning only the local calendar day finds one
-     * end of those windows and not the other, and a half-known window is
-     * worth exactly nothing to the renderer: {@link BodyPath#moonT} needs
-     * both ends and answers NaN without them, which draws no moon at all for
-     * the whole day. That was DESIGN_NOTES delta 34's deferred bug.
+     * <h3>Why an instant and not a date</h3>
+     * A calendar day is not a lunar day: the moon rises about 50 minutes
+     * later each time, so roughly half of all days hold the <em>tail</em> of
+     * one up-period in the small hours and the <em>start</em> of the next one
+     * later on. There is no single rise/set pair that describes both, and the
+     * pre-2.3.4 code built one anyway — it took the day's first rise and the
+     * day's first set, which on those days belong to different windows. The
+     * moon was retired up to an hour early on the nights either side of
+     * {@code 2026-09-21}, and drawn up to an hour before it had risen on the
+     * nights either side of {@code 2026-09-05}.
      *
-     * <p>{@link BodyPath#moonT} already handles the wrap — it reads a set
-     * earlier than the rise as "sets tomorrow" and adds 24 — so the missing
-     * piece was only ever finding the crossing. Each absent end is now
-     * searched for in the adjoining day and reported as that day's own
-     * {@code [0, 24)} hour, which is exactly the form the wrap expects.
+     * <p>Asking about an instant removes the ambiguity rather than encoding
+     * around it: there is exactly one window that contains a given moment.
+     * The whole computation is a few dozen trig calls with no allocation
+     * worth counting and no I/O, so it is cheaper to recompute on the minute
+     * tick than it was to cache a value that could only ever be right for
+     * part of the day.
      *
      * <h3>A day with no crossing at all</h3>
-     * Above roughly 61° of latitude the moon can stay up, or stay down, for
-     * a whole day. Neither produces a crossing, so both used to return null
-     * and draw nothing — right for one and wrong for the other. The altitude
-     * at midday now separates them: up all day reports a full-day window,
-     * down all day still reports nothing.
+     * Above roughly 61° of latitude the moon can stay up, or stay down, for a
+     * whole day. Neither produces a crossing, so the altitude at
+     * {@code atMillis} separates them: up reports a window spanning the day,
+     * down reports nothing.
      *
-     * @return the day's window, or {@code null} when the moon does not
-     *         appear at all
+     * @return the window, or {@code null} when the moon is neither up now nor
+     *         due to rise within the next couple of days
      */
-    public static LunarTimes moonTimes(float latitude, float longitude, LocalDate date, ZoneId zone) {
+    public static LunarTimes moonWindow(float latitude, float longitude, long atMillis, ZoneId zone) {
         double latRad = Math.toRadians(latitude);
-        long t0 = date.atStartOfDay(zone).toInstant().toEpochMilli();
+        LocalDate date = Instant.ofEpochMilli(atMillis).atZone(zone).toLocalDate();
 
-        Scan today = scanDay(t0, DAY_SCAN_HOURS, latRad, longitude);
-        Double rise = today.rise, set = today.set;
-
-        if (rise == null && set == null) {
-            // No crossing either way: up all day, or down all day.
-            return isUp(t0 + 12 * HOUR_MS, latRad, longitude)
-                    ? new LunarTimes(0f, ALL_DAY_SET) : null;
-        }
-
-        // Each neighbour is resolved through LocalDate rather than by adding
-        // 86_400_000ms, so a day that is 23 or 25 hours long under a DST
-        // transition still starts where the calendar says it does.
+        // Neighbouring days are resolved through LocalDate rather than by
+        // adding 86_400_000ms, so a day that is 23 or 25 hours long under a
+        // DST transition still starts where the calendar says it does.
+        long dayStart = date.atStartOfDay(zone).toInstant().toEpochMilli();
         long dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
-        if (set == null) {
-            set = scanDay(dayEnd, NEIGHBOUR_SCAN_HOURS, latRad, longitude).set;
+        long from = date.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+        long to = date.plusDays(3).atStartOfDay(zone).toInstant().toEpochMilli();
+
+        Window w = windowAt(crossings(from, to, latRad, longitude), dayStart, dayEnd, atMillis);
+        if (w == null) {
+            // No crossing brackets this moment: the moon is either up for the
+            // whole scan or down for it. Only the first is worth drawing, and
+            // it gets the day itself as its window.
+            return isUp(atMillis, latRad, longitude)
+                    ? new LunarTimes(0f, hoursFromMidnight(dayEnd, date, zone))
+                    : null;
         }
-        if (rise == null) {
-            long previousStart = date.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
-            rise = scanDay(previousStart, NEIGHBOUR_SCAN_HOURS, latRad, longitude).rise;
+        return new LunarTimes(hoursFromMidnight(w.rise, date, zone),
+                              hoursFromMidnight(w.set, date, zone));
+    }
+
+    /**
+     * Picks the window containing {@code now} from a time-ordered crossing
+     * list, or — when the moon is down — the next one to begin after it.
+     * Both answer {@link BodyPath#moonT} correctly: a window that has not
+     * opened yet puts the moon before {@code t = 0}, which draws nothing.
+     *
+     * <p>A window with an end outside the scan is anchored to the day's own
+     * edge rather than dropped — "already up when today began", "still up
+     * when it ends". Both are true statements about today, which is all the
+     * renderer is asking, and both only arise near the pole, where the moon
+     * can stay up across several calendar boundaries. The day's edge rather
+     * than the scan's, so an anchored window still crosses the screen over
+     * the day instead of creeping across a four-day span.
+     */
+    private static Window windowAt(List<Crossing> crossings, long dayStart, long dayEnd, long now) {
+        // A scan that opens with a set is a scan that opened with the moon
+        // already up, from further back than it reaches.
+        boolean open = !crossings.isEmpty() && !crossings.get(0).rising;
+        long openedAt = dayStart;
+
+        for (Crossing c : crossings) {
+            if (c.rising) {
+                openedAt = c.millis;
+                open = true;
+            } else if (open) {
+                if (c.millis > now) return new Window(openedAt, c.millis);
+                open = false;
+            }
         }
-
-        // Still missing means the window is longer than a day and a half —
-        // which happens at high latitude, where the moon can stay up across
-        // two calendar boundaries. Rather than hand back half a window, which
-        // draws nothing at all, anchor the unknown end to the day's own edge:
-        // if the moon is already up at midnight it rose before this day, and
-        // if it is still up at the end of it it sets after. Both are true
-        // statements about today, which is all the renderer is asking.
-        if (rise == null && isUp(t0, latRad, longitude)) rise = 0.0;
-        if (set == null && isUp(dayEnd, latRad, longitude)) set = (double) ALL_DAY_SET;
-
-        // The invariant the renderer depends on: a window is complete or it
-        // is absent. BodyPath.moonT needs both ends and answers NaN without
-        // them, so half a window and no window draw the same nothing — and
-        // returning null at least says so honestly.
-        if (rise == null || set == null) return null;
-
-        return new LunarTimes(hour(rise), hour(set));
+        // Up when the scan ran out. Anchoring the set to the end of today only
+        // describes a window that has actually started by then; one that has
+        // not is a moon that neither rises nor sets today, which draws nothing
+        // either way.
+        return open && openedAt < dayEnd ? new Window(openedAt, dayEnd) : null;
     }
 
     /** Whether the moon is above its rise/set altitude at this instant. */
@@ -135,59 +172,68 @@ public final class LunarMath {
         return altitude(utcMillis, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG > 0;
     }
 
-    /** Normalises a scan result into {@code [0, 24)}; a parabola root at the
-     *  very end of the last span can land on exactly 24. */
-    private static float hour(Double h) {
-        if (h == null) return Float.NaN;
-        double v = h % 24.0;
-        if (v < 0) v += 24.0;
-        return (float) v;
+    /**
+     * An instant as decimal hours from the local midnight that opens
+     * {@code date} — negative before it, past 24 after it.
+     *
+     * <p>Read off the wall clock rather than by dividing elapsed
+     * milliseconds, so the number stays comparable with the clock hour the
+     * sky renders against on the 23- and 25-hour days a DST transition makes.
+     */
+    private static float hoursFromMidnight(long millis, LocalDate date, ZoneId zone) {
+        ZonedDateTime z = Instant.ofEpochMilli(millis).atZone(zone);
+        long days = ChronoUnit.DAYS.between(date, z.toLocalDate());
+        return (float) (days * 24
+                + z.getHour()
+                + z.getMinute() / 60.0
+                + z.getSecond() / 3600.0);
     }
 
     /**
-     * Scans {@code spanHours} from {@code t0} for the moon's crossings of
-     * {@link #MOONRISE_ALTITUDE_DEG}. The body is unchanged from the
-     * pre-2.3.3 search; only its start and length are now parameters.
+     * Every crossing of {@link #MOONRISE_ALTITUDE_DEG} in {@code [from, to)},
+     * in time order. The parabola fit is unchanged from the pre-2.3.4 search;
+     * it now records both roots of a span instead of keeping only the first
+     * rise and the first set of a day.
      */
-    private static Scan scanDay(long t0, int spanHours, double latRad, double longitudeDeg) {
-        Scan out = new Scan();
-        double h0 = altitude(t0, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
+    private static List<Crossing> crossings(long from, long to, double latRad, double longitudeDeg) {
+        List<Crossing> out = new ArrayList<>();
+        double h0 = altitude(from, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
 
-        for (int i = 1; i <= spanHours - 1 && (out.rise == null || out.set == null); i += 2) {
-            double h1 = altitude(t0 + i * HOUR_MS, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
-            double h2 = altitude(t0 + (i + 1) * HOUR_MS, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
+        for (long t = from; t + 2 * HOUR_MS <= to; t += 2 * HOUR_MS) {
+            double hStart = h0;
+            double h1 = altitude(t + HOUR_MS, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
+            double h2 = altitude(t + 2 * HOUR_MS, latRad, longitudeDeg) - MOONRISE_ALTITUDE_DEG;
 
-            double a = (h0 + h2) / 2.0 - h1;
-            double b = (h2 - h0) / 2.0;
-
-            if (a != 0.0) {
-                double xe = -b / (2.0 * a);
-                double ye = (a * xe + b) * xe + h1;
-                double d = b * b - 4.0 * a * h1;
-
-                if (d >= 0.0) {
-                    double dx = Math.sqrt(d) / (Math.abs(a) * 2.0);
-                    double x1 = xe - dx, x2 = xe + dx;
-                    int roots = 0;
-                    if (Math.abs(x1) <= 1.0) roots++;
-                    if (Math.abs(x2) <= 1.0) roots++;
-                    if (x1 < -1.0) x1 = x2;
-
-                    if (roots == 1) {
-                        if (h0 < 0) { if (out.rise == null) out.rise = (double) i + x1; }
-                        else        { if (out.set  == null) out.set  = (double) i + x1; }
-                    } else if (roots == 2) {
-                        if (ye < 0) {
-                            if (out.rise == null) out.rise = (double) i + x2;
-                            if (out.set  == null) out.set  = (double) i + x1;
-                        } else {
-                            if (out.rise == null) out.rise = (double) i + x1;
-                            if (out.set  == null) out.set  = (double) i + x2;
-                        }
-                    }
-                }
-            }
+            double a = (hStart + h2) / 2.0 - h1;
+            double b = (h2 - hStart) / 2.0;
             h0 = h2;
+            if (a == 0.0) continue;
+
+            double xe = -b / (2.0 * a);
+            double ye = (a * xe + b) * xe + h1;
+            double d = b * b - 4.0 * a * h1;
+            if (d < 0.0) continue;
+
+            double dx = Math.sqrt(d) / (Math.abs(a) * 2.0);
+            double x1 = xe - dx, x2 = xe + dx;
+            int roots = 0;
+            if (Math.abs(x1) <= 1.0) roots++;
+            if (Math.abs(x2) <= 1.0) roots++;
+            if (x1 < -1.0) x1 = x2;
+
+            // x is measured from the span's midpoint, an hour in.
+            if (roots == 1) {
+                // One root: the span starts on one side of the horizon and
+                // ends on the other, so where it started says which way.
+                out.add(new Crossing(t + HOUR_MS + Math.round(x1 * HOUR_MS), hStart < 0));
+            } else if (roots == 2) {
+                // Vertex below the horizon: the moon dips, so the earlier root
+                // is the set and the later one the rise. Above it: a bump, and
+                // the order is the other way round.
+                boolean firstRising = ye >= 0;
+                out.add(new Crossing(t + HOUR_MS + Math.round(x1 * HOUR_MS), firstRising));
+                out.add(new Crossing(t + HOUR_MS + Math.round(x2 * HOUR_MS), !firstRising));
+            }
         }
         return out;
     }

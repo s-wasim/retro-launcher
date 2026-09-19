@@ -39,20 +39,24 @@ public final class BodyPath {
 
     /**
      * Fraction of the way through the moon's own rise-to-set window: 0 at
-     * moonrise, 1 at moonset. Folds the window across midnight the same way
-     * {@link SolarClock#warp} folds night, so a moonset that lands after
-     * 00:00 (encoded as {@code moonsetHour <= moonriseHour}) still produces
-     * a monotonic result. NaN when the window is degenerate.
+     * moonrise, 1 at moonset, outside {@code [0, 1]} when the moon is not up.
+     *
+     * <p>{@code moonriseHour} and {@code moonsetHour} are hours relative to
+     * today's local midnight, as {@link LunarMath#moonWindow} reports them —
+     * offsets, not clock readings, so a window that opened yesterday has a
+     * negative rise and one that closes tomorrow a set past 24. That leaves
+     * nothing to fold: the window is a plain interval and this is a plain
+     * lerp across it.
+     *
+     * <p>Before 2.3.4 both ends were squeezed into {@code [0, 24)} and a set
+     * numerically below the rise meant "sets tomorrow". The fold could only
+     * ever describe one of the two up-periods a calendar day can hold, so
+     * the other was drawn against the wrong end. NaN when the window is
+     * degenerate.
      */
     static float moonT(float hour, float moonriseHour, float moonsetHour) {
-        // Strict '<' so an exactly-equal rise/set (a degenerate window, not
-        // a genuine after-midnight moonset) falls through to span <= 0 and
-        // yields NaN below, rather than being folded into a spurious 24h
-        // window.
-        float end = moonsetHour < moonriseHour ? moonsetHour + 24f : moonsetHour;
-        float span = end - moonriseHour;
+        float span = moonsetHour - moonriseHour;
         if (!(span > 0f)) return Float.NaN;
-        float h = hour < moonriseHour ? hour + 24f : hour;
-        return (h - moonriseHour) / span;
+        return (hour - moonriseHour) / span;
     }
 }
