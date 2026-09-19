@@ -16,28 +16,37 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           # Pinned with the AGP version in build.gradle: AGP 8.13.2 needs
           # Gradle 8.14 or newer. There is no wrapper in this repo, so the
           # two have to be changed together.
           gradle-version: '8.14.5'
 
-      # packages: the action's default is "tools platform-tools", and `tools`
-      # — the obsolete SDK Tools package, superseded by cmdline-tools years
-      # ago — was removed from Google's repository. Once the runner image
-      # moved to cmdline-tools 16.0 the default started failing every build
-      # on every branch with "Failed to find package 'tools'", before Gradle
-      # ran at all. Naming the one package we actually want drops the dead
-      # one. Nothing in this repo ever used `tools`.
-      - uses: android-actions/setup-android@v3
+      # Every action here is on a major that runs Node 24. Node 20 reached
+      # end of life on the runners, which forced all four onto Node 24
+      # anyway with a deprecation warning on every build — running there on
+      # purpose, on versions that declare it, is the difference between a
+      # supported configuration and one the runner is propping up.
+      #
+      # packages stays named explicitly even though v4 no longer needs it.
+      # v3 defaulted to "tools platform-tools"; `tools` — the obsolete SDK
+      # Tools package, superseded by cmdline-tools years ago — was removed
+      # from Google's repository, so once the runner image moved to
+      # cmdline-tools 16.0 that default failed every build on every branch
+      # with "Failed to find package 'tools'", before Gradle ran at all.
+      # v4 drops `tools` from its own default, so this line is now
+      # belt-and-braces rather than the fix — and that is the point: what
+      # this build installs should not depend on an action's default, which
+      # is what went wrong in the first place.
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
