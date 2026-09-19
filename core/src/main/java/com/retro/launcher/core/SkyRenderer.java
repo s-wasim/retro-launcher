@@ -241,8 +241,12 @@ public final class SkyRenderer {
 
         renderStars(out, night, cover, seconds);
         if (moonVisible) {
-            float moonVisibility = moonVisibility(sunAlt, moonT);
-            renderMoon(out, sunAlt, twilight, botR, botG, botB, moonX, moonY, c.moonPhase, moonVisibility);
+            float moonVisibility = moonVisibility(sunAlt, moonT, c.moonPhase);
+            // The unlit limb is only ever visible against a dark sky — by day
+            // it is the blue behind it, not a grey disc — so it fades out on
+            // the daylight ramp rather than on the lit limb's.
+            renderMoon(out, sunAlt, twilight, botR, botG, botB, moonX, moonY, c.moonPhase,
+                    moonVisibility, 1f - daylight(sunAlt));
         }
 
         final float flare = smooth(0.06f, 0f, Math.abs(sunT - 0.5f)) * (1f - cover) * clamp01(sunAlt);
@@ -262,11 +266,38 @@ public final class SkyRenderer {
         if (tintRamp != null) applyTint(out);
     }
 
-    /** Sun-driven fade (moon washes out as the sun climbs) times a short
-     *  fade-in/out at the {@code t=0}/{@code t=1} edges of the moon's own
-     *  rise-set window, so it does not pop into or out of existence. */
-    private float moonVisibility(float sunAlt, float moonT) {
-        float sunFade = clamp01(1f - smooth(-0.05f, 0.10f, sunAlt));
+    /** How far daylight has taken the sky over: 0 with the sun below the
+     *  horizon, 1 with it well up. The ramp both the daytime moon and its
+     *  unlit limb are faded against. */
+    private static float daylight(float sunAlt) {
+        return smooth(-0.05f, 0.35f, sunAlt);
+    }
+
+    /**
+     * The lit limb's opacity: a sun-driven fade times a short fade-in/out at
+     * the {@code t=0}/{@code t=1} edges of the moon's own rise-set window, so
+     * it does not pop into or out of existence.
+     *
+     * <h3>2.3.4: the moon is up in the daytime too</h3>
+     * The sun-driven fade used to reach zero at {@code sunAlt = 0.10} — about
+     * half an hour after sunrise — so the moon was erased from the sky for
+     * the whole of every day. That is not what the sky does. For the ten-odd
+     * days around each quarter the moon is plainly visible in broad daylight:
+     * in Islamabad on 2026-09-19 it rose at 13:47 and hung there all
+     * afternoon while the wallpaper drew nothing until six in the evening.
+     *
+     * <p>What daylight actually costs the moon is contrast, and contrast
+     * scales with how much of the disc is lit — a gibbous moon reads clearly
+     * against a blue sky where a thin crescent disappears into it. So the
+     * daytime floor is driven by the lit fraction rather than being flat, and
+     * the pairing is self-limiting without a special case: a full moon is by
+     * definition opposite the sun, so it is never up while the sun is high
+     * enough for the floor to bite.
+     */
+    private float moonVisibility(float sunAlt, float moonT, float moonPhase) {
+        float litFrac = 1f - Math.abs(moonPhase - 0.5f) * 2f;
+        float dayFloor = 0.06f + 0.58f * litFrac * (float) Math.sqrt(litFrac);
+        float sunFade = 1f - daylight(sunAlt) * (1f - dayFloor);
         float edgeIn = smooth(0f, 0.05f, moonT);
         float edgeOut = smooth(1f, 0.95f, moonT);
         return sunFade * edgeIn * edgeOut;
@@ -274,8 +305,11 @@ public final class SkyRenderer {
 
     private void renderMoon(int[] out, float sunAlt, float twilight,
                             float botR, float botG, float botB,
-                            float moonX, float moonY, float moonPhase, float visibility) {
+                            float moonX, float moonY, float moonPhase,
+                            float visibility, float darkFade) {
         if (moonY >= h + 16) return;
+        // Nothing of it would survive the blend, so skip the 27x27 walk.
+        if (visibility < 0.01f) return;
         final float R = 12f;
 
         float mt = clamp01(-sunAlt);
@@ -299,7 +333,7 @@ public final class SkyRenderer {
                 float term = (float) (Math.cos(2 * Math.PI * q) * Math.sqrt(Math.max(0, 1 - ny * ny)));
                 boolean lit = (sx * nx) > term;
                 float X = moonX + x, Y = moonY + y;
-                if (!lit) { px(out, X, Y, darkColR, darkColG, darkColB, 0.55f * visibility); continue; }
+                if (!lit) { px(out, X, Y, darkColR, darkColG, darkColB, 0.55f * visibility * darkFade); continue; }
 
                 int xi = (int) X, yi = (int) Y;
                 float dd = (float) Math.hypot(mx + 2.5, my + 3) + (Bayer.M[yi & 3][xi & 3] / 16f - 0.5f) * 2.2f;

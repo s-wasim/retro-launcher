@@ -11,57 +11,151 @@ public class LunarMathTest {
     private static final float LAT = 52.52f, LON = 13.4f;
     private static final ZoneId ZONE = ZoneId.of("Europe/Berlin");
 
-    @Test public void returnsHoursInRangeWhenTheMoonRisesAndSets() {
-        boolean sawAResult = false;
-        LocalDate d = LocalDate.of(2026, 3, 1);
-        for (int i = 0; i < 30; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(LAT, LON, d.plusDays(i), ZONE);
+    /** The instant {@code hour} names on {@code date}'s wall clock. Built
+     *  through the local time rather than by adding elapsed milliseconds to
+     *  midnight, so a 23- or 25-hour DST day still lands on the hour asked
+     *  for. */
+    private static long at(LocalDate date, double hour, ZoneId zone) {
+        int h = (int) hour;
+        int m = (int) Math.round((hour - h) * 60);
+        return date.atTime(h, m).atZone(zone).toInstant().toEpochMilli();
+    }
+
+    /** What that instant actually reads on the clock — the same number the
+     *  sky renders against. Not always the hour asked for: a spring-forward
+     *  gap resolves to the hour after it. */
+    private static float clockHour(long millis, ZoneId zone) {
+        java.time.ZonedDateTime z = java.time.Instant.ofEpochMilli(millis).atZone(zone);
+        return z.getHour() + z.getMinute() / 60f;
+    }
+
+    private static LunarMath.LunarTimes window(float lat, float lon, LocalDate date, double hour, ZoneId zone) {
+        return LunarMath.moonWindow(lat, lon, at(date, hour, zone), zone);
+    }
+
+    // ---- the contract ----------------------------------------------------
+
+    @Test public void aWindowAlwaysSetsAfterItRises() {
+        // 2.3.4's whole point: the hours are offsets from local midnight, not
+        // clock readings, so there is no wrapped encoding to decode and the
+        // set is unconditionally the larger number.
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        int seen = 0;
+        for (int i = 0; i < 400; i++) {
+            for (double h : new double[] { 0.5, 6, 12, 18, 23.5 }) {
+                LunarMath.LunarTimes t = window(LAT, LON, d.plusDays(i), h, ZONE);
+                if (t == null) continue;
+                seen++;
+                assertFalse(Float.isNaN(t.moonriseHour));
+                assertFalse(Float.isNaN(t.moonsetHour));
+                assertTrue("set must follow rise on " + d.plusDays(i) + " at " + h
+                                + ": " + t.moonriseHour + ".." + t.moonsetHour,
+                        t.moonsetHour > t.moonriseHour);
+            }
+        }
+        assertTrue(seen > 1500);
+    }
+
+    @Test public void aWindowIsEitherCompleteOrAbsentNeverPartial() {
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        for (int i = 0; i < 400; i++) {
+            LunarMath.LunarTimes t = window(LAT, LON, d.plusDays(i), 12, ZONE);
             if (t == null) continue;
-            sawAResult = true;
-            if (!Float.isNaN(t.moonriseHour)) {
-                assertTrue(t.moonriseHour >= 0f && t.moonriseHour < 24f);
-            }
-            if (!Float.isNaN(t.moonsetHour)) {
-                assertTrue(t.moonsetHour >= 0f && t.moonsetHour < 24f);
-            }
+            assertTrue("partial window on " + d.plusDays(i),
+                    !Float.isNaN(t.moonriseHour) && !Float.isNaN(t.moonsetHour));
         }
-        assertTrue(sawAResult);
     }
 
-    @Test public void someDayInALunarMonthHasNeitherARiseNorASet() {
-        // A calendar day with *neither* event (both rise and set skip it) is
-        // not the common "24h50m lunar day" skip — that usually drops only
-        // one of the two onto a neighbouring day (see
-        // someDayHasTheMoonSetBeforeItRisesAgain / the returns-in-range
-        // test), and empirically never both at once at Berlin's latitude
-        // across a full year of scanning. A full "neither" day is the
-        // moon's own near-polar-night analogue, reliable only at higher
-        // latitudes — verified here at 70N over the same March 2026 window
-        // used by the other tests in this file.
-        boolean foundNull = false;
-        float highLat = 70f;
-        LocalDate d = LocalDate.of(2026, 3, 1);
-        for (int i = 0; i < 30 && !foundNull; i++) {
-            if (LunarMath.moonTimes(highLat, LON, d.plusDays(i), ZONE) == null) foundNull = true;
+    @Test public void aWindowIsNeverLongerThanTheMoonCanActuallyBeUp() {
+        // At Berlin's latitude the moon is up at most about 17 hours. A pair
+        // stitched together from two different up-periods — the pre-2.3.4
+        // failure — shows up here as a span well past that.
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        for (int i = 0; i < 365; i++) {
+            LunarMath.LunarTimes t = window(LAT, LON, d.plusDays(i), 12, ZONE);
+            if (t == null) continue;
+            float span = t.moonsetHour - t.moonriseHour;
+            // Berlin's genuine maximum in 2026 is 18h41m, so anything past
+            // nineteen and a half is two windows stitched together rather
+            // than a long one.
+            assertTrue("implausible span on " + d.plusDays(i) + ": " + span, span < 19.5f);
         }
-        assertTrue("expected at least one no-rise-no-set day across a lunar month", foundNull);
     }
 
-    @Test public void someDayHasTheMoonSetBeforeItRisesAgain() {
-        // Roughly half of all days: the moon is already up at local midnight
-        // (it rose the previous day), sets that morning, then rises again
-        // later the same day for the night ahead.
-        boolean found = false;
+    // ---- the window actually contains the moment asked about -------------
+
+    @Test public void theWindowBracketsTheMomentWheneverTheMoonIsUp() {
+        // Sampled every twenty minutes across a lunar month: whenever the
+        // window covers the instant at all, the clock hour of that instant
+        // must land inside it, and t must be a drawable 0..1.
         LocalDate d = LocalDate.of(2026, 3, 1);
-        for (int i = 0; i < 30 && !found; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(LAT, LON, d.plusDays(i), ZONE);
-            if (t != null && !Float.isNaN(t.moonriseHour) && !Float.isNaN(t.moonsetHour)
-                    && t.moonsetHour < t.moonriseHour) {
-                found = true;
+        int inside = 0;
+        for (int i = 0; i < 30; i++) {
+            LocalDate date = d.plusDays(i);
+            for (int m = 0; m < 24 * 60; m += 20) {
+                long now = at(date, m / 60f, ZONE);
+                float hour = clockHour(now, ZONE);
+                LunarMath.LunarTimes t = LunarMath.moonWindow(LAT, LON, now, ZONE);
+                if (t == null) continue;
+                if (hour < t.moonriseHour) continue;      // down, waiting to rise
+                inside++;
+                assertTrue("moment past its own window on " + date + " " + hour,
+                        hour <= t.moonsetHour);
+                float pos = BodyPath.moonT(hour, t.moonriseHour, t.moonsetHour);
+                assertFalse(Float.isNaN(pos));
+                assertTrue("moonT out of range: " + pos, pos >= 0f && pos <= 1f);
             }
         }
-        assertTrue("expected at least one set-before-rise day in a month", found);
+        assertTrue("a lunar month should spend plenty of time with the moon up", inside > 500);
     }
+
+    @Test public void aWindowThatOpenedYesterdayReportsANegativeRise() {
+        // The small hours of a day whose moon rose the previous evening. This
+        // is the case the pre-2.3.4 code could only express by wrapping, and
+        // the one it paired with the wrong set.
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        int negative = 0;
+        for (int i = 0; i < 365 && negative == 0; i++) {
+            LunarMath.LunarTimes t = window(LAT, LON, d.plusDays(i), 1.0, ZONE);
+            if (t != null && t.moonriseHour < 0f) negative++;
+        }
+        assertTrue("a year must contain windows that opened before midnight", negative > 0);
+    }
+
+    @Test public void aWindowThatClosesTomorrowReportsASetPastTwentyFour() {
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        int past = 0;
+        for (int i = 0; i < 365 && past == 0; i++) {
+            LunarMath.LunarTimes t = window(LAT, LON, d.plusDays(i), 23.0, ZONE);
+            if (t != null && t.moonsetHour > 24f) past++;
+        }
+        assertTrue("a year must contain windows that close after midnight", past > 0);
+    }
+
+    /**
+     * The regression, as a specific dated case. On 2026-09-21 in Pakistan the
+     * moon sets at 00:19 (the tail of the 20th's rise) and rises again at
+     * 15:12, setting at 01:19 on the 22nd. The pre-2.3.4 code took the day's
+     * first rise and the day's first set — 15:10 and 00:20 — and paired two
+     * different windows, retiring the evening moon an hour early.
+     */
+    @Test public void theEveningWindowKeepsItsOwnSetNotTheMorningsOne() {
+        ZoneId pk = ZoneId.of("Asia/Karachi");
+        LocalDate date = LocalDate.of(2026, 9, 21);
+        LunarMath.LunarTimes evening = window(33.68f, 73.05f, date, 18.0, pk);
+        assertNotNull(evening);
+        assertEquals("rises mid-afternoon", 15.2f, evening.moonriseHour, 0.25f);
+        assertEquals("sets after midnight, not before it", 25.3f, evening.moonsetHour, 0.25f);
+
+        // And the tail of the previous window is still answered correctly for
+        // a moment inside it.
+        LunarMath.LunarTimes smallHours = window(33.68f, 73.05f, date, 0.1, pk);
+        assertNotNull(smallHours);
+        assertTrue("rose the previous afternoon", smallHours.moonriseHour < 0f);
+        assertEquals("sets just after midnight", 0.32f, smallHours.moonsetHour, 0.25f);
+    }
+
+    // ---- the astronomy ---------------------------------------------------
 
     @Test public void fullMoonRisesNearSunsetAndSetsNearSunrise() {
         // A full moon is, by definition, opposite the sun: it rises as the
@@ -71,16 +165,15 @@ public class LunarMathTest {
         // verify.
         LocalDate date = nearestFullMoonDate();
         SolarTimes sun = SolarMath.sunTimes(LAT, LON, date, ZONE);
-        LunarMath.LunarTimes moon = LunarMath.moonTimes(LAT, LON, date, ZONE);
+        // Asked about the evening, so the window is the night's own, not the
+        // morning tail that a full-moon day also carries.
+        LunarMath.LunarTimes moon = window(LAT, LON, date, 20.0, ZONE);
         assertNotNull(sun);
         assertNotNull(moon);
 
-        if (!Float.isNaN(moon.moonriseHour)) {
-            assertEquals(sun.sunsetHour, moon.moonriseHour, 1.0f);
-        }
-        if (!Float.isNaN(moon.moonsetHour)) {
-            assertEquals(sun.sunriseHour, moon.moonsetHour, 1.0f);
-        }
+        assertEquals(sun.sunsetHour, moon.moonriseHour, 1.0f);
+        // Sets near tomorrow's sunrise, so past 24 on this day's clock.
+        assertEquals(sun.sunriseHour + 24f, moon.moonsetHour, 1.0f);
     }
 
     private static LocalDate nearestFullMoonDate() {
@@ -96,104 +189,17 @@ public class LunarMathTest {
         return best;
     }
 
-    @Test public void aPolarSummerNightGivesAConsistentAnswer() {
-        // Very high latitude: must not throw, and must return either null or
-        // in-range hours — never NaN mixed with an out-of-range number.
-        LunarMath.LunarTimes t = LunarMath.moonTimes(78f, 15f, LocalDate.of(2026, 6, 21), ZoneId.of("UTC"));
-        if (t != null) {
-            if (!Float.isNaN(t.moonriseHour)) assertTrue(t.moonriseHour >= 0f && t.moonriseHour < 24f);
-            if (!Float.isNaN(t.moonsetHour)) assertTrue(t.moonsetHour >= 0f && t.moonsetHour < 24f);
-        }
-    }
-
-    // ---- 2.3.3: windows that cross midnight ------------------------------
-
-    /** Half-known: one end found, the other left NaN. The state that drew no
-     *  moon for a whole day, and DESIGN_NOTES delta 34's deferred bug. */
-    private static boolean halfKnown(LunarMath.LunarTimes t) {
-        if (t == null) return false;
-        return Float.isNaN(t.moonriseHour) != Float.isNaN(t.moonsetHour);
-    }
-
-    @Test public void noDayOfAYearIsLeftWithHalfAWindow() {
-        // The regression itself. Before 2.3.3 this found roughly two days a
-        // month at every latitude tested: the moon rises late and sets after
-        // midnight, or set in the small hours having risen the day before,
-        // and scanning only the calendar day found one end and not the other.
-        String[] zones = { "Europe/Berlin", "Asia/Karachi", "America/New_York" };
-        float[] lats = { 52.5f, 24.9f, 40.7f };
-        float[] lons = { 13.4f, 67.0f, -74.0f };
-
-        for (int z = 0; z < zones.length; z++) {
-            ZoneId zone = ZoneId.of(zones[z]);
-            LocalDate d = LocalDate.of(2026, 1, 1);
-            for (int i = 0; i < 365; i++) {
-                LunarMath.LunarTimes t = LunarMath.moonTimes(lats[z], lons[z], d.plusDays(i), zone);
-                assertFalse(zones[z] + " " + d.plusDays(i) + " has half a window: "
-                                + (t == null ? "null" : t.moonriseHour + ".." + t.moonsetHour),
-                        halfKnown(t));
-            }
-        }
-    }
-
-    @Test public void aWindowIsEitherCompleteOrAbsentNeverPartial() {
-        // Stated as the invariant rather than as a count, because "complete
-        // or absent" is exactly what BodyPath.moonT can consume.
-        LocalDate d = LocalDate.of(2026, 1, 1);
-        for (int i = 0; i < 400; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(52.5f, 13.4f, d.plusDays(i), ZONE);
-            if (t == null) continue;
-            boolean complete = !Float.isNaN(t.moonriseHour) && !Float.isNaN(t.moonsetHour);
-            assertTrue("partial window on " + d.plusDays(i), complete);
-        }
-    }
-
-    @Test public void everyReportedHourStaysInRange() {
-        LocalDate d = LocalDate.of(2026, 1, 1);
-        for (int i = 0; i < 400; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(52.5f, 13.4f, d.plusDays(i), ZONE);
-            if (t == null) continue;
-            assertTrue(t.moonriseHour >= 0f && t.moonriseHour < 24f);
-            assertTrue(t.moonsetHour >= 0f && t.moonsetHour < 24f);
-        }
-    }
-
-    @Test public void aCrossMidnightWindowActuallyOccursAndIsDrawable() {
-        // Not just "no NaN" — the window has to be one BodyPath can turn
-        // into a position. A set earlier than the rise is the wrap case.
-        LocalDate d = LocalDate.of(2026, 1, 1);
-        int wrapped = 0;
-        for (int i = 0; i < 365; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(52.5f, 13.4f, d.plusDays(i), ZONE);
-            if (t == null || Float.isNaN(t.moonriseHour) || Float.isNaN(t.moonsetHour)) continue;
-            if (t.moonsetHour >= t.moonriseHour) continue;
-            wrapped++;
-            // Just after rising, and just before setting, the moon must be
-            // on screen — t in [0,1] — rather than NaN.
-            float justAfterRise = Math.min(23.99f, t.moonriseHour + 0.5f);
-            float justBeforeSet = Math.max(0.01f, t.moonsetHour - 0.5f);
-            for (float hour : new float[] { justAfterRise, justBeforeSet }) {
-                float pos = BodyPath.moonT(hour, t.moonriseHour, t.moonsetHour);
-                assertFalse("moonT went NaN inside its own window on " + d.plusDays(i),
-                        Float.isNaN(pos));
-                assertTrue("moonT out of range: " + pos, pos >= 0f && pos <= 1f);
-            }
-        }
-        assertTrue("a year should contain cross-midnight windows", wrapped > 0);
-    }
-
     @Test public void aMoonUpAllDayIsDrawnRatherThanDiscarded() {
         // Above ~61 degrees the moon can stay up for a whole calendar day.
         // That produces no crossing, which used to be indistinguishable from
-        // "never up" and drew nothing. Both still must be one or the other,
-        // never a partial window, and an all-day window must be drawable.
+        // "never up" and drew nothing.
         LocalDate d = LocalDate.of(2026, 1, 1);
         int allDay = 0;
         for (int i = 0; i < 365; i++) {
-            LunarMath.LunarTimes t = LunarMath.moonTimes(70f, 15f, d.plusDays(i), ZoneId.of("UTC"));
-            assertFalse("half a window at 70N on " + d.plusDays(i), halfKnown(t));
+            LunarMath.LunarTimes t = window(70f, 15f, d.plusDays(i), 12, ZoneId.of("UTC"));
             if (t == null) continue;
-            if (t.moonriseHour == 0f && t.moonsetHour > 23.9f) {
+            assertTrue(t.moonsetHour > t.moonriseHour);
+            if (t.moonriseHour <= 0f && t.moonsetHour >= 24f) {
                 allDay++;
                 float pos = BodyPath.moonT(12f, t.moonriseHour, t.moonsetHour);
                 assertFalse(Float.isNaN(pos));
@@ -201,5 +207,33 @@ public class LunarMathTest {
             }
         }
         assertTrue("a year at 70N should contain moon-up-all-day", allDay > 0);
+    }
+
+    @Test public void aMoonDownAllDayIsReportedAsAbsent() {
+        LocalDate d = LocalDate.of(2026, 1, 1);
+        int absent = 0;
+        for (int i = 0; i < 365 && absent == 0; i++) {
+            if (window(78f, 15f, d.plusDays(i), 12, ZoneId.of("UTC")) == null) absent++;
+        }
+        assertTrue("a year at 78N should contain a day the moon never appears", absent > 0);
+    }
+
+    @Test public void aPolarSummerNightGivesAConsistentAnswer() {
+        LunarMath.LunarTimes t = window(78f, 15f, LocalDate.of(2026, 6, 21), 12, ZoneId.of("UTC"));
+        if (t != null) assertTrue(t.moonsetHour > t.moonriseHour);
+    }
+
+    @Test public void aDaylightSavingTransitionDoesNotSkewTheWindow() {
+        // Berlin's spring-forward day is 23 hours long. The hours reported are
+        // clock readings offset from midnight, not elapsed milliseconds, so a
+        // window spanning the jump still lines up with the hour the sky
+        // renders against.
+        LocalDate springForward = LocalDate.of(2026, 3, 29);
+        for (double h : new double[] { 0.5, 4, 12, 22 }) {
+            LunarMath.LunarTimes t = window(LAT, LON, springForward, h, ZONE);
+            if (t == null) continue;
+            assertTrue(t.moonsetHour > t.moonriseHour);
+            assertTrue(t.moonsetHour - t.moonriseHour < 18f);
+        }
     }
 }

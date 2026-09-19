@@ -6,6 +6,10 @@ package com.retro.launcher.core;
  * loose scalars. {@code hour} is the {@link SolarClock}-warped hour driving
  * sky colour and the sun's position; {@code realHour} is the unwarped local
  * hour driving the moon's position on its own clock.
+ *
+ * <p>{@code moonriseHour} and {@code moonsetHour} are that window's ends as
+ * hours relative to today's local midnight — offsets, so they may be negative
+ * or past 24 — exactly as {@link LunarMath#moonWindow} reports them.
  */
 public final class SkyConditions {
 

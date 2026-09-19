@@ -119,9 +119,7 @@ public final class WeatherRepository {
                     reading = fetched.weather;
                     readingAt = System.currentTimeMillis();
                     persist();
-                    if (fetched.solarTimes != null) {
-                        persistSolarTimes(withMoonTimes(fetched.solarTimes, lat, lon));
-                    }
+                    if (fetched.solarTimes != null) persistSolarTimes(fetched.solarTimes);
                     if (onUpdated != null) onUpdated.run();
                 });
             }, "weather-fetch").start();
@@ -147,83 +145,70 @@ public final class WeatherRepository {
 
     /**
      * Today's sunrise, sunset, tomorrow's sunrise, and the moon window the
-     * sky needs to place the disc. Cache first (today's entry, if present and
-     * complete); otherwise a local {@link SolarMath} computation from the
-     * current fix, cached for the rest of the day; otherwise null, which is
-     * exactly the signal {@link com.retro.launcher.core.SolarClock} treats as
-     * "no data — draw the fixed table". Safe to call from the main thread:
+     * sky needs to place the disc. The sun half comes from the cache (today's
+     * entry, if present) or a local {@link SolarMath} computation from the
+     * current fix, cached for the rest of the day; the moon half is computed
+     * fresh on every call. Null when there is no fix and no cached day, which
+     * is exactly the signal {@link com.retro.launcher.core.SolarClock} treats
+     * as "no data — draw the fixed table". Safe to call from the main thread:
      * the cache read is a SharedPreferences read, and SolarMath and
      * {@link LunarMath} are pure local arithmetic, not network calls.
-     *
-     * <p>"Complete" is 2.3.2's addition: a cached day with no moon window is
-     * repaired rather than returned, because the window is what decides
-     * whether the moon is drawn at all. See {@link #withMoonTimes}.
      */
     public SolarTimes solarTimes() {
         LocalDate today = LocalDate.now();
         SolarTimes cached = restoreSolarTimes(today);
-        if (cached != null && cached.hasMoonTimes()) return cached;
 
         double[] f = fix();
-        if (f == null) return cached;   // null unless today's entry is moonless
+        if (f == null) return cached;   // sun only, or nothing at all
 
-        if (cached != null) {
-            // Today's entry was written without a moon window — by a build
-            // from before this fix, or by a fetch that had no fix to compute
-            // one from. Fill it in rather than handing back a day the moon
-            // cannot be drawn on, and write the repair back so it costs once
-            // rather than once a tick.
-            SolarTimes repaired = withMoonTimes(cached, f[0], f[1]);
-            if (repaired.hasMoonTimes()) persistSolarTimes(repaired);
-            return repaired;
+        SolarTimes sun = cached;
+        if (sun == null) {
+            sun = SolarMath.sunTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
+            if (sun == null) return null;
+            persistSolarTimes(sun);
         }
-
-        SolarTimes sun = SolarMath.sunTimes((float) f[0], (float) f[1], today, ZoneId.systemDefault());
-        if (sun == null) return null;
-
-        SolarTimes combined = withMoonTimes(sun, f[0], f[1]);
-        persistSolarTimes(combined);
-        return combined;
+        return withMoonWindow(sun, f[0], f[1]);
     }
 
     /**
-     * {@code day} with its moonrise and moonset filled in from
-     * {@link LunarMath}, or unchanged if it already has both or the moon
-     * neither rises nor sets that day.
+     * {@code day} carrying the moon window that covers this moment, or
+     * unchanged when the moon is neither up nor due to rise.
      *
-     * <p>This is the only place the moon window is computed, and every
-     * {@link SolarTimes} this class persists goes through it. That matters
-     * because the network cannot supply one: Open-Meteo's daily block has
-     * sunrise and sunset and no moon at all, so
+     * <h3>Why this is computed and not stored</h3>
+     * A moon window is a property of an instant, not of a calendar day. The
+     * moon rises about 50 minutes later each time, so roughly half of all
+     * days hold the tail of one up-period in the small hours and the start of
+     * the next later on, and no single stored pair describes both — see
+     * {@link LunarMath#moonWindow}. Recomputing costs a few dozen trig calls
+     * with no I/O and no allocation worth counting, which is less than the
+     * SharedPreferences read that caching it needed.
+     *
+     * <p>It also retires a whole class of bug at the root. The network cannot
+     * supply a moon window — Open-Meteo's daily block has sunrise and sunset
+     * and no moon at all, so
      * {@link com.retro.launcher.core.WeatherParser#parseSolarTimes} can only
-     * build the sun-only form, whose moonrise and moonset are NaN. Persisting
-     * that as it came overwrote the computed window with the NaN pair, and
-     * because the cache is keyed by date alone, {@link #solarTimes()} then
-     * kept handing the NaN pair back for the rest of the day while every
-     * subsequent fetch renewed it. NaN reaches
-     * {@link com.retro.launcher.core.BodyPath#moonT} as "no window at all",
-     * which is drawn as no moon — so the moon disappeared from the sky
-     * entirely and stayed gone. Fixed in 2.3.2.
-     *
-     * <p>Cheap enough to sit on the fetch callback and on the minute tick:
-     * pure local arithmetic, two dozen low-precision altitude samples, no
-     * I/O and no allocation worth counting.
+     * build the sun-only form, whose moon fields are NaN. Persisting that as
+     * it came overwrote the computed window with the NaN pair, and because
+     * the cache was keyed by date alone the NaN pair was then handed back for
+     * the rest of the day while every subsequent fetch renewed it: the moon
+     * vanished from the sky entirely and stayed gone. 2.3.2 patched that by
+     * repairing the cached day; 2.3.4 stops storing the thing that could be
+     * wrong.
      */
-    private static SolarTimes withMoonTimes(SolarTimes day, double lat, double lon) {
-        if (day.hasMoonTimes()) return day;
-        LunarMath.LunarTimes moon =
-                LunarMath.moonTimes((float) lat, (float) lon, day.date, ZoneId.systemDefault());
+    private static SolarTimes withMoonWindow(SolarTimes day, double lat, double lon) {
+        LunarMath.LunarTimes moon = LunarMath.moonWindow(
+                (float) lat, (float) lon, System.currentTimeMillis(), ZoneId.systemDefault());
         if (moon == null) return day;
         return day.withMoonTimes(moon.moonriseHour, moon.moonsetHour);
     }
 
+    /** The sun half only. The moon window is never stored — see
+     *  {@link #withMoonWindow}. */
     private void persistSolarTimes(SolarTimes t) {
         prefs.putLong(Prefs.K_SOL_EPOCH_DAY, t.date.toEpochDay());
         prefs.putFloat(Prefs.K_SOL_SUNRISE, t.sunriseHour);
         prefs.putFloat(Prefs.K_SOL_SUNSET, t.sunsetHour);
         prefs.putFloat(Prefs.K_SOL_TOMORROW, t.tomorrowSunriseHour);
-        prefs.putFloat(Prefs.K_SOL_MOONRISE, t.moonriseHour);
-        prefs.putFloat(Prefs.K_SOL_MOONSET, t.moonsetHour);
     }
 
     private SolarTimes restoreSolarTimes(LocalDate today) {
@@ -233,8 +218,6 @@ public final class WeatherRepository {
                 prefs.getFloat(Prefs.K_SOL_SUNRISE, Float.NaN),
                 prefs.getFloat(Prefs.K_SOL_SUNSET, Float.NaN),
                 prefs.getFloat(Prefs.K_SOL_TOMORROW, Float.NaN),
-                prefs.getFloat(Prefs.K_SOL_MOONRISE, Float.NaN),
-                prefs.getFloat(Prefs.K_SOL_MOONSET, Float.NaN),
                 today);
     }
 
