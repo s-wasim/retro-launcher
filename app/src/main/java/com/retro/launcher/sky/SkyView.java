@@ -295,8 +295,15 @@ public final class SkyView extends TextureView implements TextureView.SurfaceTex
         }
 
         float seconds = (System.nanoTime() - startNanos) / 1_000_000_000f;
-        SkyConditions c = new SkyConditions(hour, realHour, moonriseHour, moonsetHour,
-                w.cloudCover, w.precip, moonPhase, w.type, w.thunder, w.tempC);
+        // 2.3.1: the storm's graded intensity rather than its boolean. The
+        // manual override has no storm of its own to grade, so it keeps the
+        // boolean form's mid-scale default.
+        SkyConditions c = manualOverrideEnabled
+                ? new SkyConditions(hour, realHour, moonriseHour, moonsetHour,
+                        w.cloudCover, w.precip, moonPhase, w.type, w.thunder, w.tempC)
+                : new SkyConditions(hour, realHour, moonriseHour, moonsetHour,
+                        w.cloudCover, w.precip, moonPhase, w.type, w.tempC,
+                        w.thunderScalar());
 
         // Published for loop() before the frame is drawn rather than after,
         // so a scene that has just turned to rain speeds up on this frame

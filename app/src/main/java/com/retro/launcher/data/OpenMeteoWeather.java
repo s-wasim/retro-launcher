@@ -42,7 +42,13 @@ public final class OpenMeteoWeather implements WeatherSource {
             URL url = new URL(ENDPOINT
                     + "?latitude=" + coord(latitude)
                     + "&longitude=" + coord(longitude)
-                    + "&current=temperature_2m,weather_code,cloud_cover,precipitation,precipitation_probability"
+                    // 2.3.1 appends `cape`. It rides on the same GET — no extra
+                    // request, no key, and it is the only free global
+                    // quantitative handle on storm strength the API has.
+                    // (`lightning_potential` is more direct but lives on a
+                    // different endpoint and only covers Central Europe and
+                    // North America.)
+                    + "&current=temperature_2m,weather_code,cloud_cover,precipitation,precipitation_probability,cape"
                     + "&daily=sunrise,sunset&timezone=auto&forecast_days=2");
 
             conn = (HttpsURLConnection) url.openConnection();

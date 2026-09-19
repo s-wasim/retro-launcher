@@ -79,6 +79,11 @@ public final class Prefs {
     public static final String K_WX_THUNDER = "wxThunder";
     public static final String K_WX_PROB    = "wxProb";
 
+    // 2.3.1. The storm's 0-5 level, alongside the pre-existing boolean rather
+    // than replacing it: a cache written by 2.2.1 or earlier has the boolean
+    // and not this, and must still restore as a storm.
+    public static final String K_WX_THUNDER_LVL = "wxThunderLvl";
+
     // V9 §7b. Manual wallpaper override — a test/preview surface, not just a
     // debug switch, so it persists until the user turns it off.
     public static final String K_WX_OVERRIDE = "wxOverride";

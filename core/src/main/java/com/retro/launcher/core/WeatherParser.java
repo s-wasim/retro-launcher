@@ -20,9 +20,17 @@ import java.util.List;
  * Every malformed shape — a truncated body, an HTML error page, an API error
  * object, a missing required field, a field of the wrong type — returns
  * null, meaning "no update". A missing *optional* channel (cloud cover,
- * precipitation) instead falls back to the value implied by
+ * precipitation, CAPE) instead falls back to the value implied by
  * {@code weather_code}, reproducing pre-V9 behaviour for that one channel
  * rather than failing the whole reading. This class never throws.
+ *
+ * <h3>2.3.1: thunderstorms are graded, not just flagged</h3>
+ * Codes 95, 96 and 99 used to share one {@code Condition} and produce one
+ * boolean. They are three different storms — 96 and 99 report slight and
+ * heavy hail — and the {@code cape} channel puts a physical number on how
+ * much energy is behind any of them. Both feed {@link ThunderIntensity}.
+ * {@code Condition.thunder} still decides <em>whether</em> there is a storm;
+ * nothing else may.
  */
 public final class WeatherParser {
 
@@ -55,6 +63,10 @@ public final class WeatherParser {
         Double cloudPct = number(body, "\"cloud_cover\"");
         Double precipMm = number(body, "\"precipitation\"");
         Double precipProb = number(body, "\"precipitation_probability\"");
+        // 2.3.1. Convective Available Potential Energy, J/kg. Optional like
+        // the other channels: absent, the storm is graded from the WMO code
+        // alone. See ThunderIntensity for why this may not declare a storm.
+        Double cape = number(body, "\"cape\"");
 
         float cloudCover = cloudPct != null
                 ? SkyRenderer.clamp01(cloudPct.floatValue() / 100f)
@@ -64,7 +76,9 @@ public final class WeatherParser {
                 : SkyRenderer.smooth(0.62f, 0.98f, c.w);
         int precipProbability = precipProb != null ? Math.round(precipProb.floatValue()) : 0;
 
-        boolean thunder = c.thunder;
+        int wmoCode = (int) Math.round(code);
+        int thunderLevel = ThunderIntensity.levelFor(
+                c.thunder, wmoCode, cape != null ? cape.floatValue() : null);
         Precip type = precip > 0f ? (c.snow ? Precip.SNOW : Precip.RAIN) : Precip.NONE;
 
         // The label comes from the WMO code's own canonical scalar, not the
@@ -73,7 +87,7 @@ public final class WeatherParser {
         // round-trip through the fallback-synthesized cloudCover/precip is
         // lossy enough at the low end to misalign label-band boundaries.
         return new Weather((int) Math.round(temp), SyntheticWeather.label(c.w, c.snow),
-                cloudCover, precip, type, thunder, precipProbability);
+                cloudCover, precip, type, precipProbability, thunderLevel);
     }
 
     private static final String DAILY_KEY = "\"daily\"";

@@ -103,7 +103,11 @@ public final class FrameBudget {
     /** {@link #intervalMs} without the panel check — the scene's own rate. */
     public static long animationIntervalMs(SkyConditions c, int bufW, int bufH) {
         if (c == null) return IDLE_MS;
-        if (falling(c) || c.thunder) return FAST_MS;
+        // 2.3.1: any storm at all, at any intensity. Even the lowest level
+        // strikes often enough to need the fast rate — the bolt lives seven
+        // frames and the flash decays per frame, so a slow rate stretches
+        // both into something that reads as a fault rather than as weather.
+        if (falling(c) || c.thunderIntensity > 0f) return FAST_MS;
         if (cloudsShown(c.cloudCover) > 0
                 || starsVisible(c)
                 || sunVisible(c, bufW, bufH)
